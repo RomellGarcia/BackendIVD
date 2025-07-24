@@ -1,85 +1,109 @@
+// terminos.js
 const express = require('express');
-const { ObjectId } = require('mongodb');
 const router = express.Router();
+const { ObjectId } = require('mongodb');
 
+// Middleware para asegurar que req.db esté disponible
+router.use((req, res, next) => {
+  if (!req.db) {
+    return res.status(500).json({ message: 'Error interno: Base de datos no disponible' });
+  }
+  next();
+});
+
+// GET all terms
 router.get('/', async (req, res) => {
   try {
-    const db = req.db;
-    const registros = await db.collection('registro').find().toArray();
-    res.json(registros);
+    const terminos = await req.db.collection('terminos').find().toArray();
+    res.json(terminos);
   } catch (error) {
-    console.error('Error al obtener registros:', error);
-    res.status(500).json({ error: 'No se pudieron obtener los registros' });
+    console.error('❌ Error al obtener los términos:', error);
+    res.status(500).json({ message: 'Error al obtener los términos', error: error.message });
   }
 });
 
+// GET a term by ID
+router.get('/:id', async (req, res) => {
+  try {
+    const termino = await req.db.collection('terminos').findOne({ _id: new ObjectId(req.params.id) });
+    if (!termino) {
+      return res.status(404).json({ message: 'Término no encontrado' });
+    }
+    res.json(termino);
+  } catch (error) {
+    console.error('❌ Error al obtener el término:', error);
+    res.status(500).json({ message: 'Error al obtener el término', error: error.message });
+  }
+});
+
+// POST a new term
 router.post('/', async (req, res) => {
-  const { nombre, curp } = req.body; // Cambié correo por curp para consistencia
-
-  if (!nombre || !curp) {
-    return res.status(400).json({ error: 'Los campos nombre y CURP son obligatorios' });
-  }
-
   try {
-    const db = req.db;
-
-    const nuevoRegistro = {
-      nombre,
-      curp,
-      fecha: new Date(),
+    const { titulo, contenido } = req.body;
+    if (!titulo || !contenido) {
+      return res.status(400).json({ message: 'Título y contenido son requeridos' });
+    }
+    const nuevoTermino = {
+      titulo: titulo.trim(),
+      contenido: contenido.trim(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
-
-    await db.collection('registro').insertOne(nuevoRegistro);
-    res.json({ message: 'Registro creado exitosamente', registro: nuevoRegistro });
+    const result = await req.db.collection('terminos').insertOne(nuevoTermino);
+    const terminoGuardado = await req.db.collection('terminos').findOne({ _id: result.insertedId });
+    res.status(201).json(terminoGuardado);
   } catch (error) {
-    console.error('Error al crear el registro:', error);
-    res.status(500).json({ error: 'No se pudo crear el registro' });
+    console.error('❌ Error al crear el término:', error);
+    res.status(500).json({ message: 'Error al crear el término', error: error.message });
   }
 });
 
+// PUT update a term by ID
 router.put('/:id', async (req, res) => {
-  const { id } = req.params;
-  const { nombre, curp } = req.body;
-
-  if (!nombre || !curp) {
-    return res.status(400).json({ error: 'Los campos nombre y CURP son obligatorios' });
-  }
-
   try {
-    const db = req.db;
-
-    const result = await db.collection('registro').updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { nombre, curp } }
-    );
-
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ error: 'Registro no encontrado' });
+    const { titulo, contenido } = req.body;
+    if (!titulo || !contenido) {
+      return res.status(400).json({ message: 'Título y contenido son requeridos' });
     }
-
-    res.json({ message: 'Registro actualizado correctamente' });
+    const terminoId = new ObjectId(req.params.id);
+    const updateData = {
+      titulo: titulo.trim(),
+      contenido: contenido.trim(),
+      updatedAt: new Date(),
+    };
+    const result = await req.db.collection('terminos').findOneAndUpdate(
+      { _id: terminoId },
+      { $set: updateData },
+      { returnDocument: 'after' }
+    );
+    if (!result.value) {
+      return res.status(404).json({ message: 'Término actualizado correctamente' });
+    }
+    res.json(result.value);
   } catch (error) {
-    console.error('Error al actualizar registro:', error);
-    res.status(500).json({ error: 'No se pudo actualizar el registro' });
+    console.error('❌ Error al actualizar el término:', error);
+    if (error.name === 'MongoInvalidArgumentError' || error.name === 'BSONError') {
+      return res.status(400).json({ message: 'ID inválido', error: error.message });
+    }
+    res.status(500).json({ message: 'Error al actualizar el término', error: error.message });
   }
 });
 
+// DELETE a term by ID
 router.delete('/:id', async (req, res) => {
-  const { id } = req.params;
-
   try {
-    const db = req.db;
-
-    const result = await db.collection('registro').deleteOne({ _id: new ObjectId(id) });
-
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ error: 'Registro no encontrado' });
+    const terminoId = new ObjectId(req.params.id);
+    const result = await req.db.collection('terminos').findOneAndDelete({ _id: terminoId });
+    if (!result.value) {
+      return res.status(404).json({ message: 'Término eliminado correctamente ' });
     }
-
-    res.json({ message: 'Registro eliminado exitosamente' });
+    res.json({ message: 'Término eliminado correctamente' });
   } catch (error) {
-    console.error('Error al eliminar registro:', error);
-    res.status(500).json({ error: 'No se pudo eliminar el registro' });
+    console.error('❌ Error al eliminar el término:', error);
+    if (error.name === 'MongoInvalidArgumentError' || error.name === 'BSONError') {
+      return res.status(400).json({ message: 'ID inválido', error: error.message });
+    }
+    res.status(500).json({ message: 'Error al eliminar el término', error: error.message });
   }
 });
 
