@@ -14,7 +14,7 @@ router.use((req, res, next) => {
 // GET all terms
 router.get('/', async (req, res) => {
   try {
-    const terminos = await req.db.collection('terminos').find().toArray();
+    const terminos = await req.db.collection('terminos').find().sort({ createdAt: -1 }).toArray();
     res.json(terminos);
   } catch (error) {
     console.error('❌ Error al obtener los términos:', error);
@@ -43,6 +43,10 @@ router.post('/', async (req, res) => {
     if (!titulo || !contenido) {
       return res.status(400).json({ message: 'Título y contenido son requeridos' });
     }
+    
+    // Eliminar todos los términos existentes antes de crear uno nuevo
+    await req.db.collection('terminos').deleteMany({});
+    
     const nuevoTermino = {
       titulo: titulo.trim(),
       contenido: contenido.trim(),
@@ -71,14 +75,20 @@ router.put('/:id', async (req, res) => {
       contenido: contenido.trim(),
       updatedAt: new Date(),
     };
+    
+    // Primero verificar si el término existe
+    const terminoExistente = await req.db.collection('terminos').findOne({ _id: terminoId });
+    if (!terminoExistente) {
+      return res.status(404).json({ message: 'Término no encontrado' });
+    }
+    
+    // Actualizar el término
     const result = await req.db.collection('terminos').findOneAndUpdate(
       { _id: terminoId },
       { $set: updateData },
       { returnDocument: 'after' }
     );
-    if (!result.value) {
-      return res.status(404).json({ message: 'Término actualizado correctamente' });
-    }
+    
     res.json(result.value);
   } catch (error) {
     console.error('❌ Error al actualizar el término:', error);
@@ -95,7 +105,7 @@ router.delete('/:id', async (req, res) => {
     const terminoId = new ObjectId(req.params.id);
     const result = await req.db.collection('terminos').findOneAndDelete({ _id: terminoId });
     if (!result.value) {
-      return res.status(404).json({ message: 'Término eliminado correctamente ' });
+      return res.status(404).json({ message: 'Término no encontrado' });
     }
     res.json({ message: 'Término eliminado correctamente' });
   } catch (error) {

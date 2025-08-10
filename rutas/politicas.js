@@ -14,7 +14,7 @@ router.use((req, res, next) => {
 // GET /api/politicas - Obtener todas las políticas
 router.get('/', async (req, res) => {
   try {
-    const politicas = await req.db.collection('politica').find().toArray();
+    const politicas = await req.db.collection('politica').find().sort({ createdAt: -1 }).toArray();
     res.json(politicas);
   } catch (error) {
     console.error('❌ Error al obtener las políticas:', error);
@@ -46,6 +46,10 @@ router.post('/', async (req, res) => {
     if (titulo.length > 255) {
       return res.status(400).json({ message: 'El título no debe exceder 255 caracteres' });
     }
+    
+    // Eliminar todas las políticas existentes antes de crear una nueva
+    await req.db.collection('politica').deleteMany({});
+    
     const nuevaPolitica = {
       titulo: titulo.trim(),
       contenido: contenido.trim(),
@@ -77,14 +81,19 @@ router.put('/:id', async (req, res) => {
       contenido: contenido.trim(),
       updatedAt: new Date(),
     };
+    // Primero verificar si la política existe
+    const politicaExistente = await req.db.collection('politica').findOne({ _id: politicaId });
+    if (!politicaExistente) {
+      return res.status(404).json({ message: 'Política no encontrada' });
+    }
+    
+    // Actualizar la política
     const result = await req.db.collection('politica').findOneAndUpdate(
       { _id: politicaId },
       { $set: updateData },
       { returnDocument: 'after' }
     );
-    if (!result.value) {
-      return res.status(404).json({ message: 'Política no encontrada' });
-    }
+    
     res.json(result.value);
   } catch (error) {
     console.error('❌ Error al actualizar la política:', error);

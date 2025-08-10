@@ -14,7 +14,7 @@ router.use((req, res, next) => {
 // GET /api/vision - Obtener las visiones
 router.get('/', async (req, res) => {
   try {
-    const visiones = await req.db.collection('vision').find().toArray();
+    const visiones = await req.db.collection('vision').find().sort({ createdAt: -1 }).toArray();
     res.json(visiones);
   } catch (error) {
     console.error('❌ Error al obtener las visiones:', error);
@@ -49,6 +49,10 @@ router.post('/', async (req, res) => {
     if (contenido.length > 2000) {
       return res.status(400).json({ message: 'El contenido no debe exceder 2000 caracteres' });
     }
+    
+    // Eliminar todas las visiones existentes antes de crear una nueva
+    await req.db.collection('vision').deleteMany({});
+    
     const nuevaVision = {
       titulo: titulo.trim(),
       contenido: contenido.trim(),

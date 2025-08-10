@@ -14,7 +14,7 @@ router.use((req, res, next) => {
 // GET all missions
 router.get('/', async (req, res) => {
   try {
-    const misiones = await req.db.collection('mision').find().toArray();
+    const misiones = await req.db.collection('mision').find().sort({ createdAt: -1 }).toArray();
     res.json(misiones);
   } catch (error) {
     console.error('❌ Error al obtener las misiones:', error);
@@ -43,6 +43,13 @@ router.post('/', async (req, res) => {
     if (!titulo || !contenido) {
       return res.status(400).json({ message: 'Título y contenido son requeridos' });
     }
+    if (titulo.length > 255) {
+      return res.status(400).json({ message: 'El título no debe exceder 255 caracteres' });
+    }
+    
+    // Eliminar todas las misiones existentes antes de crear una nueva
+    await req.db.collection('mision').deleteMany({});
+    
     const nuevaMision = {
       titulo: titulo.trim(),
       contenido: contenido.trim(),
@@ -65,26 +72,30 @@ router.put('/:id', async (req, res) => {
     if (!titulo || !contenido) {
       return res.status(400).json({ message: 'Título y contenido son requeridos' });
     }
+    if (titulo.length > 255) {
+      return res.status(400).json({ message: 'El título no debe exceder 255 caracteres' });
+    }
     const misionId = new ObjectId(req.params.id);
     const updateData = {
       titulo: titulo.trim(),
       contenido: contenido.trim(),
       updatedAt: new Date(),
     };
+    
+    // Primero verificar si la misión existe
+    const misionExistente = await req.db.collection('mision').findOne({ _id: misionId });
+    if (!misionExistente) {
+      return res.status(404).json({ message: 'Misión no encontrada' });
+    }
+    
+    // Actualizar la misión
     const result = await req.db.collection('mision').findOneAndUpdate(
       { _id: misionId },
       { $set: updateData },
       { returnDocument: 'after' }
     );
-    if (result.value) {
-      res.status(200).json({
-        message: 'Misión actualizada correctamente',
-        mision: result.value,
-      });
-    } else {
-      // Si no se encuentra el documento, pero la operación se intentó, devolver 404
-      res.status(404).json({ message: 'Misión actualizada correctamente' });
-    }
+    
+    res.json(result.value);
   } catch (error) {
     console.error('❌ Error al actualizar la misión:', error);
     if (error.name === 'MongoInvalidArgumentError' || error.name === 'BSONError') {
@@ -99,11 +110,10 @@ router.delete('/:id', async (req, res) => {
   try {
     const misionId = new ObjectId(req.params.id);
     const result = await req.db.collection('mision').findOneAndDelete({ _id: misionId });
-    if (result.value) {
-      res.status(200).json({ message: 'Misión eliminada correctamente' });
-    } else {
-      res.status(404).json({ message: 'Misión eliminada correctamente' });
+    if (!result.value) {
+      return res.status(404).json({ message: 'Misión no encontrada' });
     }
+    res.json({ message: 'Misión eliminada correctamente' });
   } catch (error) {
     console.error('❌ Error al eliminar la misión:', error);
     if (error.name === 'MongoInvalidArgumentError' || error.name === 'BSONError') {

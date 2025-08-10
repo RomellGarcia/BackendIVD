@@ -14,7 +14,7 @@ app.use(express.json());
 
 // Configurar CORS para permitir localhost:3000
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: ['http://localhost:3000',"https://front-ivd.vercel.app/"],
   credentials: true,
 }));
 
@@ -63,6 +63,10 @@ async function startServer() {
     const politicas = require('./rutas/politicas');
     const eventos = require('./rutas/eventos');
     const clubes = require('./rutas/clubes');
+    const resultados = require('./rutas/resultados');
+    const entrenador = require('./rutas/entrenador');
+    const entrenadores = require('./rutas/entrenadores');
+    const sesiones = require('./rutas/sesiones');
 
     // Configurar rutas
 
@@ -76,6 +80,10 @@ async function startServer() {
     app.use('/api/politicas',politicas);
     app.use('/api/eventos',eventos);
     app.use('/api/clubes',clubes);
+    app.use('/api/resultados', resultados);
+    app.use('/api/entrenador', entrenador);
+    app.use('/api/entrenadores', entrenadores);
+    app.use('/api/sesiones', sesiones);
     app.use('/api/recuperar', recuperarPassword);
 
     
