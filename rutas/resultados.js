@@ -10,24 +10,26 @@ router.use((req, res, next) => {
   next();
 });
 
-// POST /api/resultados - Registrar resultado de un atleta en un evento
+// POST /api/resultados - Crear nuevo resultado
 router.post('/', async (req, res) => {
   try {
     const {
       eventoId,
+      convocatoriaIndex,
       atletaId,
-      disciplina,
       categoria,
-      tiempo,
-      posicion,
-      marca,
-      observaciones,
-      registradoPor // ID del usuario que registra (admin o club)
+      sexo,
+      municipio,
+      club,
+      añoCompetitivo,
+      pruebas,
+      entrenadorId,
+      lugarEntrenamiento
     } = req.body;
 
     // Validaciones básicas
-    if (!eventoId || !atletaId || !disciplina || !categoria) {
-      return res.status(400).json({ message: 'Evento, atleta, disciplina y categoría son requeridos' });
+    if (!eventoId || !atletaId || !categoria) {
+      return res.status(400).json({ message: 'Evento, atleta y categoría son obligatorios' });
     }
 
     const db = req.db;
@@ -44,36 +46,27 @@ router.post('/', async (req, res) => {
       return res.status(404).json({ message: 'Atleta no encontrado' });
     }
 
-    // Verificar que el atleta está inscrito en el evento
-    const inscripcion = await db.collection('inscripciones').findOne({ 
-      eventoId, 
-      atletaId 
-    });
-    if (!inscripcion) {
-      return res.status(400).json({ message: 'El atleta no está inscrito en este evento' });
-    }
-
-    // Verificar que no existe ya un resultado para este atleta en esta disciplina
-    const resultadoExistente = await db.collection('resultados').findOne({
-      eventoId,
-      atletaId,
-      disciplina
-    });
-    if (resultadoExistente) {
-      return res.status(400).json({ message: 'Ya existe un resultado para este atleta en esta disciplina' });
+    // Verificar que el entrenador existe si se especifica
+    if (entrenadorId) {
+      const entrenador = await db.collection('registro').findOne({ _id: new ObjectId(entrenadorId), rol: 'entrenador' });
+      if (!entrenador) {
+        return res.status(404).json({ message: 'Entrenador no encontrado' });
+      }
     }
 
     // Crear el resultado
     const nuevoResultado = {
       eventoId,
+      convocatoriaIndex: convocatoriaIndex || 0,
       atletaId,
-      disciplina,
       categoria,
-      tiempo: tiempo || null,
-      posicion: posicion || null,
-      marca: marca || null,
-      observaciones: observaciones || '',
-      registradoPor,
+      sexo: sexo || 'no especificado',
+      municipio: municipio || '',
+      club: club || '',
+      añoCompetitivo: añoCompetitivo || new Date().getFullYear(),
+      pruebas: pruebas || [],
+      entrenadorId: entrenadorId || null,
+      lugarEntrenamiento: lugarEntrenamiento || '',
       fechaRegistro: new Date(),
       nombreAtleta: `${atleta.nombre} ${atleta.apellidopa} ${atleta.apellidoma}`,
       nombreEvento: evento.titulo,
@@ -85,8 +78,8 @@ router.post('/', async (req, res) => {
 
     res.status(201).json(resultadoGuardado);
   } catch (error) {
-    console.error('❌ Error al registrar resultado:', error);
-    res.status(500).json({ message: 'Error al registrar resultado', error: error.message });
+    console.error('❌ Error al crear resultado:', error);
+    res.status(500).json({ message: 'Error al crear resultado', error: error.message });
   }
 });
 
@@ -96,34 +89,25 @@ router.get('/', async (req, res) => {
     const {
       eventoId,
       atletaId,
-      disciplina,
       categoria,
-      clubId,
-      limit = 50,
-      sort = 'fechaRegistro'
+      club,
+      añoCompetitivo,
+      limit = 100
     } = req.query;
 
     const db = req.db;
-    const filtro = {};
+    let filtro = {};
 
+    // Aplicar filtros si se proporcionan
     if (eventoId) filtro.eventoId = eventoId;
     if (atletaId) filtro.atletaId = atletaId;
-    if (disciplina) filtro.disciplina = disciplina;
     if (categoria) filtro.categoria = categoria;
-
-    // Si se filtra por club, obtener atletas del club primero
-    if (clubId) {
-      const atletasClub = await db.collection('registro').find({ 
-        clubId, 
-        rol: 'atleta' 
-      }).toArray();
-      const atletaIds = atletasClub.map(a => a._id.toString());
-      filtro.atletaId = { $in: atletaIds };
-    }
+    if (club) filtro.club = club;
+    if (añoCompetitivo) filtro.añoCompetitivo = parseInt(añoCompetitivo);
 
     const resultados = await db.collection('resultados')
       .find(filtro)
-      .sort({ [sort]: -1 })
+      .sort({ fechaRegistro: -1 })
       .limit(parseInt(limit))
       .toArray();
 
@@ -134,66 +118,21 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/resultados/atleta/:atletaId - Obtener resultados de un atleta específico
-router.get('/atleta/:atletaId', async (req, res) => {
+// GET /api/resultados/:id - Obtener resultado específico
+router.get('/:id', async (req, res) => {
   try {
+    const { id } = req.params;
     const db = req.db;
-    const { atletaId } = req.params;
 
-    // Verificar que el atleta existe
-    const atleta = await db.collection('registro').findOne({ 
-      _id: new ObjectId(atletaId), 
-      rol: 'atleta' 
-    });
-    if (!atleta) {
-      return res.status(404).json({ message: 'Atleta no encontrado' });
+    const resultado = await db.collection('resultados').findOne({ _id: new ObjectId(id) });
+    if (!resultado) {
+      return res.status(404).json({ message: 'Resultado no encontrado' });
     }
 
-    const resultados = await db.collection('resultados')
-      .find({ atletaId })
-      .sort({ fechaEvento: -1 })
-      .toArray();
-
-    res.json(resultados);
+    res.json(resultado);
   } catch (error) {
-    console.error('❌ Error al obtener resultados del atleta:', error);
-    res.status(500).json({ message: 'Error al obtener resultados del atleta', error: error.message });
-  }
-});
-
-// GET /api/resultados/evento/:eventoId - Obtener resultados de un evento específico
-router.get('/evento/:eventoId', async (req, res) => {
-  try {
-    const db = req.db;
-    const { eventoId } = req.params;
-
-    // Verificar que el evento existe
-    const evento = await db.collection('eventos').findOne({ _id: new ObjectId(eventoId) });
-    if (!evento) {
-      return res.status(404).json({ message: 'Evento no encontrado' });
-    }
-
-    const resultados = await db.collection('resultados')
-      .find({ eventoId })
-      .sort({ disciplina: 1, posicion: 1 })
-      .toArray();
-
-    // Agrupar por disciplina
-    const resultadosAgrupados = {};
-    resultados.forEach(resultado => {
-      if (!resultadosAgrupados[resultado.disciplina]) {
-        resultadosAgrupados[resultado.disciplina] = [];
-      }
-      resultadosAgrupados[resultado.disciplina].push(resultado);
-    });
-
-    res.json({
-      evento,
-      resultados: resultadosAgrupados
-    });
-  } catch (error) {
-    console.error('❌ Error al obtener resultados del evento:', error);
-    res.status(500).json({ message: 'Error al obtener resultados del evento', error: error.message });
+    console.error('❌ Error al obtener resultado:', error);
+    res.status(500).json({ message: 'Error al obtener resultado', error: error.message });
   }
 });
 
@@ -202,32 +141,78 @@ router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const {
-      tiempo,
-      posicion,
-      marca,
-      observaciones
+      eventoId,
+      convocatoriaIndex,
+      atletaId,
+      categoria,
+      sexo,
+      municipio,
+      club,
+      añoCompetitivo,
+      pruebas,
+      entrenadorId,
+      lugarEntrenamiento
     } = req.body;
 
     const db = req.db;
 
-    const resultado = await db.collection('resultados').findOne({ _id: new ObjectId(id) });
-    if (!resultado) {
+    // Verificar que el resultado existe
+    const resultadoExistente = await db.collection('resultados').findOne({ _id: new ObjectId(id) });
+    if (!resultadoExistente) {
       return res.status(404).json({ message: 'Resultado no encontrado' });
     }
 
-    const updateData = {
-      tiempo: tiempo || resultado.tiempo,
-      posicion: posicion || resultado.posicion,
-      marca: marca || resultado.marca,
-      observaciones: observaciones || resultado.observaciones,
+    // Verificar que el evento existe si se está cambiando
+    if (eventoId && eventoId !== resultadoExistente.eventoId) {
+      const evento = await db.collection('eventos').findOne({ _id: new ObjectId(eventoId) });
+      if (!evento) {
+        return res.status(404).json({ message: 'Evento no encontrado' });
+      }
+    }
+
+    // Verificar que el atleta existe si se está cambiando
+    if (atletaId && atletaId !== resultadoExistente.atletaId) {
+      const atleta = await db.collection('registro').findOne({ _id: new ObjectId(atletaId), rol: 'atleta' });
+      if (!atleta) {
+        return res.status(404).json({ message: 'Atleta no encontrado' });
+      }
+    }
+
+    // Verificar que el entrenador existe si se está cambiando
+    if (entrenadorId && entrenadorId !== resultadoExistente.entrenadorId) {
+      const entrenador = await db.collection('registro').findOne({ _id: new ObjectId(entrenadorId), rol: 'entrenador' });
+      if (!entrenador) {
+        return res.status(404).json({ message: 'Entrenador no encontrado' });
+      }
+    }
+
+    // Preparar datos de actualización
+    const datosActualizados = {
+      eventoId: eventoId || resultadoExistente.eventoId,
+      convocatoriaIndex: convocatoriaIndex !== undefined ? convocatoriaIndex : resultadoExistente.convocatoriaIndex,
+      atletaId: atletaId || resultadoExistente.atletaId,
+      categoria: categoria || resultadoExistente.categoria,
+      sexo: sexo || resultadoExistente.sexo,
+      municipio: municipio !== undefined ? municipio : resultadoExistente.municipio,
+      club: club !== undefined ? club : resultadoExistente.club,
+      añoCompetitivo: añoCompetitivo || resultadoExistente.añoCompetitivo,
+      pruebas: pruebas || resultadoExistente.pruebas,
+      entrenadorId: entrenadorId !== undefined ? entrenadorId : resultadoExistente.entrenadorId,
+      lugarEntrenamiento: lugarEntrenamiento !== undefined ? lugarEntrenamiento : resultadoExistente.lugarEntrenamiento,
       fechaActualizacion: new Date()
     };
 
-    await db.collection('resultados').updateOne(
+    // Actualizar el resultado
+    const result = await db.collection('resultados').updateOne(
       { _id: new ObjectId(id) },
-      { $set: updateData }
+      { $set: datosActualizados }
     );
 
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: 'Resultado no encontrado' });
+    }
+
+    // Obtener el resultado actualizado
     const resultadoActualizado = await db.collection('resultados').findOne({ _id: new ObjectId(id) });
     res.json(resultadoActualizado);
   } catch (error) {
@@ -242,12 +227,12 @@ router.delete('/:id', async (req, res) => {
     const { id } = req.params;
     const db = req.db;
 
-    const resultado = await db.collection('resultados').findOne({ _id: new ObjectId(id) });
-    if (!resultado) {
+    const result = await db.collection('resultados').deleteOne({ _id: new ObjectId(id) });
+    
+    if (result.deletedCount === 0) {
       return res.status(404).json({ message: 'Resultado no encontrado' });
     }
 
-    await db.collection('resultados').deleteOne({ _id: new ObjectId(id) });
     res.json({ message: 'Resultado eliminado correctamente' });
   } catch (error) {
     console.error('❌ Error al eliminar resultado:', error);
@@ -255,85 +240,228 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// GET /api/resultados/estadisticas/atleta/:atletaId - Estadísticas de un atleta
-router.get('/estadisticas/atleta/:atletaId', async (req, res) => {
+// GET /api/resultados/evento/:eventoId - Obtener resultados por evento
+router.get('/evento/:eventoId', async (req, res) => {
   try {
+    const { eventoId } = req.params;
     const db = req.db;
-    const { atletaId } = req.params;
 
-    const atleta = await db.collection('registro').findOne({ 
-      _id: new ObjectId(atletaId), 
-      rol: 'atleta' 
-    });
-    if (!atleta) {
-      return res.status(404).json({ message: 'Atleta no encontrado' });
-    }
+    const resultados = await db.collection('resultados')
+      .find({ eventoId })
+      .sort({ fechaRegistro: -1 })
+      .toArray();
+
+    res.json(resultados);
+  } catch (error) {
+    console.error('❌ Error al obtener resultados del evento:', error);
+    res.status(500).json({ message: 'Error al obtener resultados del evento', error: error.message });
+  }
+});
+
+// GET /api/resultados/atleta/:atletaId - Obtener resultados por atleta
+router.get('/atleta/:atletaId', async (req, res) => {
+  try {
+    const { atletaId } = req.params;
+    const db = req.db;
 
     const resultados = await db.collection('resultados')
       .find({ atletaId })
-      .sort({ fechaEvento: 1 })
+      .sort({ fechaRegistro: -1 })
       .toArray();
 
-    // Calcular estadísticas
-    const estadisticas = {
-      totalEventos: resultados.length,
-      disciplinas: {},
-      mejorTiempo: null,
-      peorTiempo: null,
-      promedioTiempo: null,
-      podios: 0,
-      progreso: []
-    };
+    res.json(resultados);
+  } catch (error) {
+    console.error('❌ Error al obtener resultados del atleta:', error);
+    res.status(500).json({ message: 'Error al obtener resultados del atleta', error: error.message });
+  }
+});
 
-    if (resultados.length > 0) {
-      // Contar podios
-      estadisticas.podios = resultados.filter(r => r.posicion && r.posicion <= 3).length;
-
-      // Agrupar por disciplina
-      resultados.forEach(resultado => {
-        if (!estadisticas.disciplinas[resultado.disciplina]) {
-          estadisticas.disciplinas[resultado.disciplina] = {
-            total: 0,
-            mejorTiempo: null,
-            promedioTiempo: null
-          };
-        }
-        estadisticas.disciplinas[resultado.disciplina].total++;
-      });
-
-      // Calcular progreso temporal
-      estadisticas.progreso = resultados.map(r => ({
-        fecha: r.fechaEvento,
-        disciplina: r.disciplina,
-        tiempo: r.tiempo,
-        posicion: r.posicion
-      }));
-    }
-
+// GET /api/resultados/debug/clubes - Endpoint temporal para debug
+router.get('/debug/clubes', async (req, res) => {
+  try {
+    const db = req.db;
+    
+    console.log('🔍 Debug: Obteniendo todos los clubes...');
+    
+    // Obtener todos los clubes (colección 'club', no 'clubes')
+    const clubes = await db.collection('club').find({}).toArray();
+    console.log('📊 Clubes encontrados:', clubes.length);
+    clubes.forEach(club => {
+      console.log(`  - ID: ${club._id}, Nombre: "${club.nombre}"`);
+    });
+    
+    // Obtener todos los resultados
+    const resultados = await db.collection('resultados').find({}).toArray();
+    console.log('📊 Resultados encontrados:', resultados.length);
+    resultados.forEach(resultado => {
+      console.log(`  - Club: "${resultado.club}", Atleta: ${resultado.nombreAtleta}`);
+    });
+    
     res.json({
-      atleta: {
-        nombre: `${atleta.nombre} ${atleta.apellidopa} ${atleta.apellidoma}`,
-        edad: calcularEdad(atleta.fechaNacimiento),
-        genero: atleta.sexo
-      },
-      estadisticas
+      clubes: clubes,
+      resultados: resultados,
+      totalClubes: clubes.length,
+      totalResultados: resultados.length
     });
   } catch (error) {
-    console.error('❌ Error al obtener estadísticas del atleta:', error);
+    console.error('❌ Error en debug:', error);
+    res.status(500).json({ message: 'Error en debug', error: error.message });
+  }
+});
+
+// GET /api/resultados/club/:clubId - Obtener resultados por club
+router.get('/club/:clubId', async (req, res) => {
+  try {
+    const { clubId } = req.params;
+    const db = req.db;
+
+    console.log('🔍 Buscando club con ID:', clubId);
+
+    // Primero obtener el nombre del club (colección 'club', no 'clubes')
+    const club = await db.collection('club').findOne({ _id: new ObjectId(clubId) });
+    if (!club) {
+      console.log('❌ Club no encontrado con ID:', clubId);
+      return res.status(404).json({ message: 'Club no encontrado' });
+    }
+
+    console.log('✅ Club encontrado:', club.nombre);
+
+    // Buscar resultados por el nombre del club O por ID del club
+    const resultados = await db.collection('resultados')
+      .find({ 
+        $or: [
+          { club: club.nombre },
+          { clubId: clubId }
+        ]
+      })
+      .sort({ fechaRegistro: -1 })
+      .toArray();
+
+    console.log('📊 Resultados encontrados para el club:', resultados.length);
+    console.log('📊 Primer resultado:', resultados[0]);
+
+    res.json(resultados);
+  } catch (error) {
+    console.error('❌ Error al obtener resultados del club:', error);
+    res.status(500).json({ message: 'Error al obtener resultados del club', error: error.message });
+  }
+});
+
+// GET /api/resultados/entrenador/:entrenadorId - Obtener resultados por entrenador
+router.get('/entrenador/:entrenadorId', async (req, res) => {
+  try {
+    const { entrenadorId } = req.params;
+    const db = req.db;
+
+    console.log('🔍 Buscando entrenador con ID:', entrenadorId);
+
+    // Verificar que el entrenador existe
+    const entrenador = await db.collection('registro').findOne({ 
+      _id: new ObjectId(entrenadorId), 
+      rol: 'entrenador' 
+    });
+    
+    if (!entrenador) {
+      console.log('❌ Entrenador no encontrado con ID:', entrenadorId);
+      return res.status(404).json({ message: 'Entrenador no encontrado' });
+    }
+
+    console.log('✅ Entrenador encontrado:', `${entrenador.nombre} ${entrenador.apellidopa}`);
+
+    // Buscar resultados por entrenadorId
+    const resultados = await db.collection('resultados')
+      .find({ entrenadorId: entrenadorId })
+      .sort({ fechaRegistro: -1 })
+      .toArray();
+
+    console.log('📊 Resultados encontrados para el entrenador:', resultados.length);
+    if (resultados.length > 0) {
+      console.log('📊 Primer resultado:', resultados[0]);
+    }
+
+    res.json(resultados);
+  } catch (error) {
+    console.error('❌ Error al obtener resultados del entrenador:', error);
+    res.status(500).json({ message: 'Error al obtener resultados del entrenador', error: error.message });
+  }
+});
+
+// GET /api/resultados/estadisticas/generales - Obtener estadísticas generales
+router.get('/estadisticas/generales', async (req, res) => {
+  try {
+    const db = req.db;
+
+    const pipeline = [
+      {
+        $group: {
+          _id: null,
+          totalResultados: { $sum: 1 },
+          totalEventos: { $addToSet: '$eventoId' },
+          totalAtletas: { $addToSet: '$atletaId' },
+          totalClubes: { $addToSet: '$club' },
+          categorias: { $addToSet: '$categoria' }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          totalResultados: 1,
+          totalEventos: { $size: '$totalEventos' },
+          totalAtletas: { $size: '$totalAtletas' },
+          totalClubes: { $size: '$totalClubes' },
+          categorias: 1
+        }
+      }
+    ];
+
+    const estadisticas = await db.collection('resultados').aggregate(pipeline).toArray();
+    res.json(estadisticas[0] || {});
+  } catch (error) {
+    console.error('❌ Error al obtener estadísticas:', error);
     res.status(500).json({ message: 'Error al obtener estadísticas', error: error.message });
   }
 });
 
-// Función auxiliar para calcular edad
-function calcularEdad(fechaNacimiento) {
-  const hoy = new Date();
-  const fechaNac = new Date(fechaNacimiento);
-  let edad = hoy.getFullYear() - fechaNac.getFullYear();
-  const mes = hoy.getMonth() - fechaNac.getMonth();
-  if (mes < 0 || (mes === 0 && hoy.getDate() < fechaNac.getDate())) {
-    edad--;
+// GET /api/resultados/estadisticas/club/:clubId - Obtener estadísticas por club
+router.get('/estadisticas/club/:clubId', async (req, res) => {
+  try {
+    const { clubId } = req.params;
+    const db = req.db;
+
+    // Obtener el nombre del club (colección 'club', no 'clubes')
+    const club = await db.collection('club').findOne({ _id: new ObjectId(clubId) });
+    if (!club) {
+      return res.status(404).json({ message: 'Club no encontrado' });
+    }
+
+    const pipeline = [
+      { $match: { club: club.nombre } },
+      {
+        $group: {
+          _id: null,
+          totalResultados: { $sum: 1 },
+          totalAtletas: { $addToSet: '$atletaId' },
+          categorias: { $addToSet: '$categoria' },
+          eventos: { $addToSet: '$eventoId' }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          totalResultados: 1,
+          totalAtletas: { $size: '$totalAtletas' },
+          categorias: 1,
+          totalEventos: { $size: '$eventos' }
+        }
+      }
+    ];
+
+    const estadisticas = await db.collection('resultados').aggregate(pipeline).toArray();
+    res.json(estadisticas[0] || {});
+  } catch (error) {
+    console.error('❌ Error al obtener estadísticas del club:', error);
+    res.status(500).json({ message: 'Error al obtener estadísticas del club', error: error.message });
   }
-  return edad;
-}
+});
 
 module.exports = router; 

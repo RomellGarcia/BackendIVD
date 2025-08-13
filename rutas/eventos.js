@@ -11,7 +11,7 @@ router.use((req, res, next) => {
   next();
 });
 
-// POST /api/eventos - Crear un nuevo evento
+// POST /api/eventos - Crear un nuevo evento con convocatorias
 router.post('/', async (req, res) => {
   try {
     const {
@@ -20,22 +20,30 @@ router.post('/', async (req, res) => {
       hora,
       lugar,
       descripcion,
-      disciplina,
-      categoria,
-      edadMin,
-      edadMax,
-      genero, // "masculino", "femenino", "mixto"
-      paraPersonas // compatibilidad con frontend actual
+      convocatorias // Array de convocatorias
     } = req.body;
 
     // Validaciones básicas
-    if (!titulo || !fecha || !hora || !lugar || !disciplina || !categoria || !genero || typeof edadMin === 'undefined' || typeof edadMax === 'undefined') {
-      return res.status(400).json({ message: 'Todos los campos son requeridos excepto descripción' });
+    if (!titulo || !fecha || !hora || !lugar || !convocatorias || !Array.isArray(convocatorias) || convocatorias.length === 0) {
+      return res.status(400).json({ message: 'Título, fecha, hora, lugar y al menos una convocatoria son requeridos' });
     }
-    const edadMinNum = parseInt(edadMin, 10);
-    const edadMaxNum = parseInt(edadMax, 10);
-    if (isNaN(edadMinNum) || isNaN(edadMaxNum)) {
-      return res.status(400).json({ message: 'La edad mínima y máxima deben ser números válidos.' });
+
+    // Validar cada convocatoria
+    for (let i = 0; i < convocatorias.length; i++) {
+      const conv = convocatorias[i];
+      if (!conv.disciplina || !conv.categoria || !conv.genero || typeof conv.edadMin === 'undefined' || typeof conv.edadMax === 'undefined') {
+        return res.status(400).json({ 
+          message: `Convocatoria ${i + 1}: disciplina, categoría, género, edad mínima y máxima son requeridos` 
+        });
+      }
+      
+      const edadMinNum = parseInt(conv.edadMin, 10);
+      const edadMaxNum = parseInt(conv.edadMax, 10);
+      if (isNaN(edadMinNum) || isNaN(edadMaxNum)) {
+        return res.status(400).json({ 
+          message: `Convocatoria ${i + 1}: La edad mínima y máxima deben ser números válidos` 
+        });
+      }
     }
 
     // Calcular fecha de cierre (24h antes del evento)
@@ -48,12 +56,17 @@ router.post('/', async (req, res) => {
       hora: hora.trim(),
       lugar: lugar.trim(),
       descripcion: descripcion ? descripcion.trim() : '',
-      disciplina: disciplina.trim(),
-      categoria: categoria.trim(),
-      edadMin: edadMinNum,
-      edadMax: edadMaxNum,
-      genero: genero.trim(),
-      paraPersonas: (paraPersonas || genero).trim(), // compatibilidad
+      convocatorias: convocatorias.map(conv => ({
+        ...conv,
+        disciplina: conv.disciplina.trim(),
+        categoria: conv.categoria.trim(),
+        edadMin: parseInt(conv.edadMin, 10),
+        edadMax: parseInt(conv.edadMax, 10),
+        genero: conv.genero.trim(),
+        paraPersonas: (conv.paraPersonas || conv.genero).trim(), // compatibilidad
+        estado: true,
+        createdAt: new Date()
+      })),
       fechaCierre,
       estado: true,
       createdAt: new Date(),
@@ -66,6 +79,66 @@ router.post('/', async (req, res) => {
   } catch (error) {
     console.error('❌ Error al crear el evento:', error);
     res.status(500).json({ message: 'Error al crear el evento', error: error.message });
+  }
+});
+
+// POST /api/eventos/:eventoId/convocatorias - Agregar convocatoria a un evento existente
+router.post('/:eventoId/convocatorias', async (req, res) => {
+  try {
+    const { eventoId } = req.params;
+    const convocatoria = req.body;
+
+    // Validar que el evento existe
+    const evento = await req.db.collection('eventos').findOne({ _id: new ObjectId(eventoId) });
+    if (!evento) {
+      return res.status(404).json({ message: 'Evento no encontrado' });
+    }
+
+    // Validar la convocatoria
+    if (!convocatoria.disciplina || !convocatoria.categoria || !convocatoria.genero || 
+        typeof convocatoria.edadMin === 'undefined' || typeof convocatoria.edadMax === 'undefined') {
+      return res.status(400).json({ 
+        message: 'Disciplina, categoría, género, edad mínima y máxima son requeridos' 
+      });
+    }
+
+    const edadMinNum = parseInt(convocatoria.edadMin, 10);
+    const edadMaxNum = parseInt(convocatoria.edadMax, 10);
+    if (isNaN(edadMinNum) || isNaN(edadMaxNum)) {
+      return res.status(400).json({ 
+        message: 'La edad mínima y máxima deben ser números válidos' 
+      });
+    }
+
+    const nuevaConvocatoria = {
+      ...convocatoria,
+      disciplina: convocatoria.disciplina.trim(),
+      categoria: convocatoria.categoria.trim(),
+      edadMin: edadMinNum,
+      edadMax: edadMaxNum,
+      genero: convocatoria.genero.trim(),
+      paraPersonas: (convocatoria.paraPersonas || convocatoria.genero).trim(),
+      estado: true,
+      createdAt: new Date()
+    };
+
+    const resultado = await req.db.collection('eventos').updateOne(
+      { _id: new ObjectId(eventoId) },
+      { 
+        $push: { convocatorias: nuevaConvocatoria },
+        $set: { updatedAt: new Date() }
+      }
+    );
+
+    if (resultado.matchedCount === 0) {
+      return res.status(404).json({ message: 'Evento no encontrado' });
+    }
+
+    const eventoActualizado = await req.db.collection('eventos').findOne({ _id: new ObjectId(eventoId) });
+    res.json(eventoActualizado);
+  } catch (error) {
+    console.error('❌ Error al agregar convocatoria:', error);
+    res.status(500).json({ message: 'Error al agregar convocatoria', error: error.message });
   }
 });
 
@@ -115,33 +188,65 @@ router.get('/convocatorias-para-atleta', async (req, res) => {
     const fechaActual = new Date();
     console.log('📅 Fecha actual:', fechaActual);
     
-    // Construir filtro de consulta
-    const filtro = {
-      edadMin: { $lte: edad },
-      edadMax: { $gte: edad },
-      $or: [
-        { genero: genero },
-        { genero: 'mixto' }
-      ],
+    // Obtener eventos con convocatorias que coincidan
+    const eventos = await req.db.collection('eventos').find({
       fechaCierre: { $gt: fechaActual },
-      estado: true
-    };
+      estado: true,
+      'convocatorias': {
+        $elemMatch: {
+          edadMin: { $lte: edad },
+          edadMax: { $gte: edad },
+          $or: [
+            { genero: genero },
+            { genero: 'mixto' }
+          ],
+          estado: true
+        }
+      }
+    }).toArray();
     
-    console.log('🔍 Filtro aplicado:', JSON.stringify(filtro, null, 2));
+    // Transformar para mantener compatibilidad con frontend actual
+    const convocatoriasFiltradas = [];
+    eventos.forEach(evento => {
+      evento.convocatorias.forEach(convocatoria => {
+        if (convocatoria.estado && 
+            convocatoria.edadMin <= edad && 
+            convocatoria.edadMax >= edad &&
+            (convocatoria.genero === genero || convocatoria.genero === 'mixto')) {
+          
+          convocatoriasFiltradas.push({
+            _id: evento._id,
+            titulo: evento.titulo,
+            fecha: evento.fecha,
+            hora: evento.hora,
+            lugar: evento.lugar,
+            descripcion: evento.descripcion,
+            disciplina: convocatoria.disciplina,
+            categoria: convocatoria.categoria,
+            edadMin: convocatoria.edadMin,
+            edadMax: convocatoria.edadMax,
+            genero: convocatoria.genero,
+            paraPersonas: convocatoria.paraPersonas,
+            fechaCierre: evento.fechaCierre,
+            estado: evento.estado,
+            convocatoriaId: convocatoria._id || convocatoria.createdAt?.getTime() // Identificador único de la convocatoria
+          });
+        }
+      });
+    });
     
-    const eventos = await req.db.collection('eventos').find(filtro).toArray();
-    
-    console.log('📋 Eventos encontrados:', eventos.length);
-    console.log('📋 Detalles de eventos:', eventos.map(e => ({
-      titulo: e.titulo,
-      edadMin: e.edadMin,
-      edadMax: e.edadMax,
-      genero: e.genero,
-      fechaCierre: e.fechaCierre,
-      estado: e.estado
+    console.log('📋 Convocatorias encontradas:', convocatoriasFiltradas.length);
+    console.log('📋 Detalles de convocatorias:', convocatoriasFiltradas.map(c => ({
+      titulo: c.titulo,
+      disciplina: c.disciplina,
+      edadMin: c.edadMin,
+      edadMax: c.edadMax,
+      genero: c.genero,
+      fechaCierre: c.fechaCierre,
+      estado: c.estado
     })));
     
-    res.json(eventos);
+    res.json(convocatoriasFiltradas);
   } catch (error) {
     console.error('❌ Error al filtrar convocatorias para atleta:', error);
     res.status(500).json({ message: 'Error al filtrar convocatorias', error: error.message });

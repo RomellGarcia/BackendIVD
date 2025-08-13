@@ -6,35 +6,6 @@ const { MongoClient, ObjectId } = require('mongodb');
 const url = 'mongodb://localhost:27017';
 const dbName = 'pagestadia';
 
-// Endpoint de prueba para verificar conexión
-router.get('/test', async (req, res) => {
-  try {
-    const client = await MongoClient.connect(url);
-    const db = client.db(dbName);
-    
-    // Verificar que la colección existe
-    const collections = await db.listCollections().toArray();
-    const sesionesExists = collections.some(col => col.name === 'sesiones');
-    
-    await client.close();
-    
-    res.json({
-      success: true,
-      message: 'Conexión exitosa a MongoDB',
-      database: dbName,
-      sesionesCollection: sesionesExists ? 'existe' : 'no existe',
-      collections: collections.map(col => col.name)
-    });
-  } catch (error) {
-    console.error('Error en test endpoint:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error de conexión a MongoDB',
-      error: error.message
-    });
-  }
-});
-
 // Crear nueva sesión
 router.post('/crear', async (req, res) => {
   try {
