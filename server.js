@@ -14,7 +14,7 @@ app.use(express.json());
 
 // Configurar CORS para permitir localhost:3000
 app.use(cors({
-  origin: ['http://localhost:3000',"https://front-ivd.vercel.app/"],
+  origin: "https://front-ivd.vercel.app/",
   credentials: true,
 }));
 
