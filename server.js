@@ -34,13 +34,28 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Crear instancia del cliente
-const client = new MongoClient(process.env.MONGODB_URI);
+// Crear instancia del cliente con opciones mejoradas para Render
+const client = new MongoClient(process.env.MONGODB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 10000,
+  socketTimeoutMS: 45000,
+  maxPoolSize: 10,
+  ssl: true,
+  tls: true,
+  tlsAllowInvalidCertificates: false,
+  tlsAllowInvalidHostnames: false,
+  retryWrites: true,
+  w: 'majority'
+});
 
 let db;
 
 async function startServer() {
   try {
+    console.log('🔄 Intentando conectar a MongoDB...');
+    console.log('📍 URI:', process.env.MONGODB_URI ? 'Configurada' : 'No configurada');
+    
     await client.connect();
     db = client.db();
     console.log('✅ Conectado a MongoDB - IVDbd');
@@ -94,8 +109,16 @@ async function startServer() {
       console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
     });
   } catch (error) {
-    console.error('❌ No se pudo conectar a MongoDB:', error.message);
-    process.exit(1);
+    console.error('❌ No se pudo conectar a MongoDB:');
+    console.error('🔍 Error detallado:', error);
+    console.error('📋 Código de error:', error.code);
+    console.error('📋 Mensaje:', error.message);
+    
+    // Intentar reconectar después de 5 segundos
+    console.log('🔄 Reintentando conexión en 5 segundos...');
+    setTimeout(() => {
+      startServer();
+    }, 5000);
   }
 }
 
