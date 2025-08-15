@@ -63,9 +63,21 @@ async function startServer() {
     await db.collection('registro').createIndex({ curp: 1 }, { unique: true });
 
     app.use((req, res, next) => {
-      req.db = db;
+  if (db) {
+    req.db = db;
+    next();
+  } else {
+    // Si MongoDB no está disponible, solo permitir rutas básicas
+    if (req.path === '/' || req.path === '/health') {
       next();
-    });
+    } else {
+      res.status(503).json({ 
+        error: 'Servicio temporalmente no disponible', 
+        message: 'MongoDB no está conectado' 
+      });
+    }
+  }
+});
 
     // Importar rutas
     const recuperarPassword = require('./rutas/recuperarPassword');
@@ -83,8 +95,6 @@ async function startServer() {
     const entrenadores = require('./rutas/entrenadores');
     
     // Configurar rutas
-
-
     app.use('/api/registros', registro);
     app.use('/api/login', login);
     app.use('/api/perfilEmpresa', perfilEmpresa); // Nueva ruta
@@ -99,29 +109,56 @@ async function startServer() {
     app.use('/api/entrenadores', entrenadores);
     app.use('/api/recuperar', recuperarPassword);
 
-    
     app.get('/', (req, res) => {
-      res.send('Servidor conectado a MongoDB y funcionando 🚀');
+      if (db) {
+        res.send('Servidor conectado a MongoDB y funcionando 🚀');
+      } else {
+        res.send('Servidor funcionando, pero sin conexión a MongoDB ⚠️');
+      }
     });
 
-    const PORT = process.env.PORT || 5000;
-    app.listen(PORT, () => {
-      console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
+    app.get('/health', (req, res) => {
+      res.json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        mongodb: db ? 'connected' : 'disconnected',
+        uptime: process.uptime()
+      });
     });
+
+    console.log('✅ Rutas configuradas correctamente');
+    
   } catch (error) {
     console.error('❌ No se pudo conectar a MongoDB:');
     console.error('🔍 Error detallado:', error);
     console.error('📋 Código de error:', error.code);
     console.error('📋 Mensaje:', error.message);
     
-    // Intentar reconectar después de 5 segundos
-    console.log('🔄 Reintentando conexión en 5 segundos...');
-    setTimeout(() => {
-      startServer();
-    }, 5000);
+    // Continuar sin MongoDB por ahora
+    console.log('⚠️ Continuando sin conexión a MongoDB...');
   }
 }
 
+// Función separada para iniciar el servidor HTTP
+function startHTTPServer() {
+  const PORT = process.env.PORT || 5000;
+  
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
+    console.log(`🌐 Accesible en: http://0.0.0.0:${PORT}`);
+    
+    if (db) {
+      console.log('✅ Servidor HTTP + MongoDB funcionando correctamente');
+    } else {
+      console.log('⚠️ Servidor HTTP funcionando, pero sin conexión a MongoDB');
+    }
+  });
+}
+
+// Iniciar servidor HTTP inmediatamente
+startHTTPServer();
+
+// Intentar conectar a MongoDB
 startServer();
 
 process.on('SIGTERM', async () => {
