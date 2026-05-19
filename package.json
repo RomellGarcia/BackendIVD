@@ -19,6 +19,7 @@
     "dotenv": "^16.6.1",
     "express": "^5.1.0",
     "express-fileupload": "^1.5.1",
+    "mongodb": "^7.2.0",
     "mongoose": "^8.16.3",
     "nodemailer": "^7.0.5",
     "sha1": "^1.1.1",
