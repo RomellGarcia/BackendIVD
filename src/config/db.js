@@ -1,4 +1,4 @@
-const { Pool } = require('pg');
+var { Pool } = require('pg');
 require('dotenv').config();
 
 var pool = new Pool({
@@ -7,12 +7,7 @@ var pool = new Pool({
 });
 
 pool.connect()
-    .then(function() {
-        console.log('✅ Conectado a PostgreSQL - Supabase');
-    })
-    .catch(function(err) {
-        console.error('❌ Error de conexión:', err.message);
-        process.exit(1);
-    });
+    .then(function() { console.log('✅ Conectado a PostgreSQL - Supabase'); })
+    .catch(function(err) { console.error('❌ Error de conexión:', err.message); process.exit(1); });
 
 module.exports = pool;

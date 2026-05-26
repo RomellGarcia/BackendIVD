@@ -1,5 +1,4 @@
-// controllers/perfilEmpresa.controller.js
-var pool      = require('../config/db');
+var pool       = require('../config/db');
 var cloudinary = require('cloudinary').v2;
 
 function parseBool(val) {
@@ -8,28 +7,47 @@ function parseBool(val) {
 
 // GET /api/perfilEmpresa
 function obtener(req, res) {
-    pool.query('SELECT * FROM contenido_estatico WHERE tipo = $1 LIMIT 1', ['perfilEmpresa'])
-        .then(function(r) {
-            if (r.rows.length === 0) {
-                // Retornar defaults igual que el original
-                return res.json({
-                    nombreEmpresa: 'Instituto Veracruzano del Deporte',
-                    eslogan: '', logo: '', direccion: '',
-                    correo: '', telefono: '',
-                    facebook: '', instagram: '', twitter: '',
-                    mostrarWhatsapp: true
-                });
-            }
-            var perfil = r.rows[0];
-            // El contenido está guardado como JSON en la columna 'contenido'
-            var datos = perfil.contenido ? JSON.parse(perfil.contenido) : {};
-            datos.mostrarWhatsapp = parseBool(datos.mostrarWhatsapp !== undefined ? datos.mostrarWhatsapp : true);
-            res.json(datos);
-        })
-        .catch(function(err) {
-            console.error('❌ Error al obtener perfil:', err);
-            res.status(500).json({ error: 'Error al obtener el perfil' });
+    Promise.all([
+        pool.query('SELECT * FROM perfil_empresa LIMIT 1'),
+        pool.query('SELECT plataforma, url FROM redes_sociales WHERE empresa_id = (SELECT id FROM perfil_empresa LIMIT 1)')
+    ])
+    .then(function(results) {
+        if (results[0].rows.length === 0) {
+            return res.json({
+                nombreEmpresa: 'Instituto Veracruzano del Deporte',
+                eslogan: '', logo: '', direccion: '', correo: '', telefono: '',
+                facebook: '', instagram: '', twitter: '', mostrarWhatsapp: true
+            });
+        }
+        var perfil = results[0].rows[0];
+        var redes  = results[1].rows;
+
+        // Convertir redes_sociales a campos planos
+        var facebook = '', instagram = '', twitter = '';
+        redes.forEach(function(r) {
+            if (r.plataforma === 'facebook')  facebook  = r.url;
+            if (r.plataforma === 'instagram') instagram = r.url;
+            if (r.plataforma === 'twitter')   twitter   = r.url;
         });
+
+        res.json({
+            id:              perfil.id,
+            nombreEmpresa:   perfil.nombre_empresa,
+            eslogan:         perfil.eslogan,
+            logo:            perfil.logo,
+            direccion:       perfil.direccion,
+            correo:          perfil.correo,
+            telefono:        perfil.telefono,
+            mostrarWhatsapp: parseBool(perfil.mostrar_whatsapp),
+            facebook:        facebook,
+            instagram:       instagram,
+            twitter:         twitter
+        });
+    })
+    .catch(function(err) {
+        console.error('❌ Error al obtener perfil:', err);
+        res.status(500).json({ error: 'Error al obtener el perfil' });
+    });
 }
 
 // POST /api/perfilEmpresa
@@ -47,40 +65,36 @@ function crear(req, res) {
     if (!nombreEmpresa || !eslogan || !direccion || !correo || !telefono) {
         return res.status(400).json({ error: 'Todos los campos obligatorios deben estar completos' });
     }
-    if (!/^\d{10}$/.test(telefono)) {
-        return res.status(400).json({ error: 'El teléfono debe tener exactamente 10 dígitos numéricos' });
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
-        return res.status(400).json({ error: 'Introduce un correo electrónico válido' });
-    }
+    if (!/^\d{10}$/.test(telefono)) return res.status(400).json({ error: 'El teléfono debe tener exactamente 10 dígitos' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return res.status(400).json({ error: 'Introduce un correo electrónico válido' });
 
-    pool.query('SELECT id FROM contenido_estatico WHERE tipo = $1', ['perfilEmpresa'])
+    pool.query('SELECT id FROM perfil_empresa LIMIT 1')
         .then(function(r) {
             if (r.rows.length > 0) return Promise.reject({ status: 400, error: 'Ya existe un perfil registrado' });
-
-            var subirLogo;
             if (req.files && req.files.logo) {
-                subirLogo = cloudinary.uploader.upload(req.files.logo.tempFilePath, {
+                return cloudinary.uploader.upload(req.files.logo.tempFilePath, {
                     folder: 'instituto-veracruzano-deporte/perfil'
                 }).then(function(result) { return result.secure_url; });
-            } else {
-                subirLogo = Promise.resolve('');
             }
-            return subirLogo;
+            return '';
         })
         .then(function(logoUrl) {
-            var datos = { nombreEmpresa: nombreEmpresa, eslogan: eslogan, logo: logoUrl,
-                          direccion: direccion, correo: correo, telefono: telefono,
-                          facebook: facebook, instagram: instagram, twitter: twitter,
-                          mostrarWhatsapp: mostrarWhatsapp };
             return pool.query(
-                'INSERT INTO contenido_estatico (tipo, titulo, contenido, updated_at) VALUES ($1,$2,$3,NOW()) RETURNING *',
-                ['perfilEmpresa', nombreEmpresa, JSON.stringify(datos)]
+                `INSERT INTO perfil_empresa (nombre_empresa, eslogan, logo, direccion, correo, telefono, mostrar_whatsapp, fecha_creacion, fecha_actualizacion)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),NOW()) RETURNING id`,
+                [nombreEmpresa, eslogan, logoUrl, direccion, correo, telefono, mostrarWhatsapp]
             );
         })
         .then(function(r) {
-            var datos = JSON.parse(r.rows[0].contenido);
-            res.status(201).json({ message: 'Perfil creado exitosamente', perfil: datos });
+            var empresaId = r.rows[0].id;
+            var redes = [];
+            if (facebook)  redes.push(pool.query('INSERT INTO redes_sociales (empresa_id, plataforma, url) VALUES ($1,$2,$3)', [empresaId, 'facebook', facebook]));
+            if (instagram) redes.push(pool.query('INSERT INTO redes_sociales (empresa_id, plataforma, url) VALUES ($1,$2,$3)', [empresaId, 'instagram', instagram]));
+            if (twitter)   redes.push(pool.query('INSERT INTO redes_sociales (empresa_id, plataforma, url) VALUES ($1,$2,$3)', [empresaId, 'twitter', twitter]));
+            return Promise.all(redes).then(function() { return empresaId; });
+        })
+        .then(function(empresaId) {
+            res.status(201).json({ message: 'Perfil creado exitosamente', id: empresaId });
         })
         .catch(function(err) {
             if (err.status) return res.status(err.status).json({ error: err.error });
@@ -104,43 +118,43 @@ function actualizar(req, res) {
     if (!nombreEmpresa || !eslogan || !direccion || !correo || !telefono) {
         return res.status(400).json({ error: 'Todos los campos obligatorios deben estar completos' });
     }
-    if (!/^\d{10}$/.test(telefono)) {
-        return res.status(400).json({ error: 'El teléfono debe tener exactamente 10 dígitos numéricos' });
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
-        return res.status(400).json({ error: 'Introduce un correo electrónico válido' });
-    }
+    if (!/^\d{10}$/.test(telefono)) return res.status(400).json({ error: 'El teléfono debe tener exactamente 10 dígitos' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return res.status(400).json({ error: 'Introduce un correo electrónico válido' });
 
-    var logoActual;
-    pool.query('SELECT id, contenido FROM contenido_estatico WHERE tipo = $1', ['perfilEmpresa'])
+    var perfilId;
+    pool.query('SELECT id, logo FROM perfil_empresa LIMIT 1')
         .then(function(r) {
             if (r.rows.length === 0) return Promise.reject({ status: 404, error: 'No se encontró un perfil para actualizar' });
-            var datosActuales = r.rows[0].contenido ? JSON.parse(r.rows[0].contenido) : {};
-            logoActual = datosActuales.logo || '';
-
-            var subirLogo;
+            perfilId = r.rows[0].id;
+            var logoActual = r.rows[0].logo || '';
             if (req.files && req.files.logo) {
-                subirLogo = cloudinary.uploader.upload(req.files.logo.tempFilePath, {
+                return cloudinary.uploader.upload(req.files.logo.tempFilePath, {
                     folder: 'instituto-veracruzano-deporte/perfil'
                 }).then(function(result) { return result.secure_url; });
-            } else {
-                subirLogo = Promise.resolve(logoActual);
             }
-            return subirLogo;
+            return logoActual;
         })
         .then(function(logoUrl) {
-            var datos = { nombreEmpresa: nombreEmpresa, eslogan: eslogan, logo: logoUrl,
-                          direccion: direccion, correo: correo, telefono: telefono,
-                          facebook: facebook, instagram: instagram, twitter: twitter,
-                          mostrarWhatsapp: mostrarWhatsapp };
             return pool.query(
-                'UPDATE contenido_estatico SET titulo=$1, contenido=$2, updated_at=NOW() WHERE tipo=$3 RETURNING *',
-                [nombreEmpresa, JSON.stringify(datos), 'perfilEmpresa']
+                `UPDATE perfil_empresa SET nombre_empresa=$1, eslogan=$2, logo=$3, direccion=$4,
+                 correo=$5, telefono=$6, mostrar_whatsapp=$7, fecha_actualizacion=NOW()
+                 WHERE id=$8`,
+                [nombreEmpresa, eslogan, logoUrl, direccion, correo, telefono, mostrarWhatsapp, perfilId]
             );
         })
-        .then(function(r) {
-            var datos = JSON.parse(r.rows[0].contenido);
-            res.json({ message: 'Perfil actualizado exitosamente', perfil: datos });
+        .then(function() {
+            // Actualizar redes: borrar e insertar
+            return pool.query('DELETE FROM redes_sociales WHERE empresa_id = $1', [perfilId]);
+        })
+        .then(function() {
+            var redes = [];
+            if (facebook)  redes.push(pool.query('INSERT INTO redes_sociales (empresa_id, plataforma, url) VALUES ($1,$2,$3)', [perfilId, 'facebook', facebook]));
+            if (instagram) redes.push(pool.query('INSERT INTO redes_sociales (empresa_id, plataforma, url) VALUES ($1,$2,$3)', [perfilId, 'instagram', instagram]));
+            if (twitter)   redes.push(pool.query('INSERT INTO redes_sociales (empresa_id, plataforma, url) VALUES ($1,$2,$3)', [perfilId, 'twitter', twitter]));
+            return Promise.all(redes);
+        })
+        .then(function() {
+            res.json({ message: 'Perfil actualizado exitosamente' });
         })
         .catch(function(err) {
             if (err.status) return res.status(err.status).json({ error: err.error });
@@ -151,15 +165,16 @@ function actualizar(req, res) {
 
 // DELETE /api/perfilEmpresa
 function eliminar(req, res) {
-    pool.query('SELECT id FROM contenido_estatico WHERE tipo = $1', ['perfilEmpresa'])
+    pool.query('SELECT id FROM perfil_empresa LIMIT 1')
         .then(function(r) {
             if (r.rows.length === 0) return Promise.reject({ status: 404, error: 'No se encontró un perfil para eliminar' });
-            return pool.query('DELETE FROM contenido_estatico WHERE tipo = $1', ['perfilEmpresa']);
+            var id = r.rows[0].id;
+            return pool.query('DELETE FROM redes_sociales WHERE empresa_id = $1', [id])
+                .then(function() { return pool.query('DELETE FROM perfil_empresa WHERE id = $1', [id]); });
         })
         .then(function() { res.json({ message: 'Perfil eliminado exitosamente' }); })
         .catch(function(err) {
             if (err.status) return res.status(err.status).json({ error: err.error });
-            console.error('❌ Error al eliminar perfil:', err);
             res.status(500).json({ error: 'No se pudo eliminar el perfil', details: err.message });
         });
 }
