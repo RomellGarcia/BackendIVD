@@ -1,136 +1,67 @@
-const express = require('express');
-const { MongoClient, ObjectId } = require('mongodb');
-const dotenv = require('dotenv');
-const cors = require('cors');
-const fileUpload = require('express-fileupload');
-const cloudinary = require('cloudinary').v2;
-const bcrypt = require('bcrypt');
+// server.js — versión final con todas las rutas migradas a PostgreSQL
+var express    = require('express');
+var dotenv     = require('dotenv');
+var cors       = require('cors');
+var fileUpload = require('express-fileupload');
+var cloudinary = require('cloudinary').v2;
 
-// Cargar variables de entorno PRIMERO
 dotenv.config();
+require('./config/db'); // Inicializar conexión PostgreSQL
 
-// Crear la aplicación Express
-const app = express();
+var app = express();
 
-//CONFIGURACIÓN CORS CORREGIDA
-const corsOptions = {
-  origin: [
-    'http://localhost:3000', 
-    'http://localhost:5173', 
-    'http://127.0.0.1:3000',
-    'https://front-ivd.vercel.app'
-  ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  optionsSuccessStatus: 200
+var corsOptions = {
+    origin: [
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'http://127.0.0.1:3000',
+        'https://front-ivd.vercel.app'
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+    optionsSuccessStatus: 200
 };
 
-// Aplicar CORS UNA SOLA VEZ
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
-
-// Middleware para parsear JSON
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(fileUpload({ useTempFiles: true, tempFileDir: '/tmp/' }));
 
-// Configurar fileUpload para manejar archivos
-app.use(fileUpload({
-  useTempFiles: true,
-  tempFileDir: '/tmp/',
-}));
-
-// Configurar Cloudinary
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key:    process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Crear instancia del cliente
-const client = new MongoClient(process.env.MONGODB_URI);
+// ─── Rutas ──────────────────────────────────────────────────────────────────
+app.use('/api/login',        require('./routes/login.routes'));
+app.use('/api/registros',    require('./routes/registros.routes'));
+app.use('/api/clubes',       require('./routes/clubes.routes'));
+app.use('/api/entrenador',   require('./routes/entrenador.routes'));
+app.use('/api/entrenadores', require('./routes/entrenadores.routes'));
+app.use('/api/eventos',      require('./routes/eventos.routes'));
+app.use('/api/resultados',   require('./routes/resultados.routes'));
+app.use('/api/sesiones',     require('./routes/sesiones.routes'));
+app.use('/api/recuperar',    require('./routes/recuperarPassword.routes'));
+app.use('/api/perfilEmpresa',require('./routes/perfilEmpresa.routes'));
 
-let db;
+// Contenido estático — todos usan el mismo controller, el tipo se detecta por baseUrl
+app.use('/api/mision',       require('./routes/contenidoEstatico.routes'));
+app.use('/api/vision',       require('./routes/contenidoEstatico.routes'));
+app.use('/api/terminos',     require('./routes/contenidoEstatico.routes'));
+app.use('/api/politicas',    require('./routes/contenidoEstatico.routes'));
 
-async function startServer() {
-  try {
-    await client.connect();
-    db = client.db(); // Esto usa la base de datos especificada en la URI
-    console.log('Conectado a MongoDB - IVDbd');
-
-    await db.collection('registro').createIndex({ curp: 1 }, { unique: true });
-
-    // Middleware para inyectar db
-    app.use((req, res, next) => {
-      req.db = db;
-      next();
-    });
-
-    // Importar rutas
-    const recuperarPassword = require('./rutas/recuperarPassword');
-    const registro = require('./rutas/registros');
-    const login = require('./rutas/login');
-    const perfilEmpresa = require('./rutas/perfilEmpresa');
-    const terminos = require('./rutas/terminos');
-    const mision = require('./rutas/mision');
-    const vision = require('./rutas/vision');
-    const politicas = require('./rutas/politicas');
-    const eventos = require('./rutas/eventos');
-    const clubes = require('./rutas/clubes');
-    const resultados = require('./rutas/resultados');
-    const entrenador = require('./rutas/entrenador');
-    const entrenadores = require('./rutas/entrenadores');
-    
-    // Configurar rutas
-    app.use('/api/registros', registro);
-    app.use('/api/login', login);
-    app.use('/api/perfilEmpresa', perfilEmpresa);
-    app.use('/api/terminos', terminos);
-    app.use('/api/mision', mision);
-    app.use('/api/vision', vision);
-    app.use('/api/politicas', politicas);
-    app.use('/api/eventos', eventos);
-    app.use('/api/clubes', clubes);
-    app.use('/api/resultados', resultados);
-    app.use('/api/entrenador', entrenador);
-    app.use('/api/entrenadores', entrenadores);
-    app.use('/api/recuperar', recuperarPassword);
-    
-    // Ruta de prueba CORS
-    app.get('/api/test', (req, res) => {
-      res.json({ 
-        message: 'Servidor funcionando correctamente', 
-        cors: 'Configurado correctamente',
-        timestamp: new Date().toISOString()
-      });
-    });
-
-    app.get('/', (req, res) => {
-      res.send('Servidor conectado a MongoDB y funcionando 🚀');
-    });
-
-    const PORT = process.env.PORT || 5000;
-    app.listen(PORT, () => {
-      console.log(`Servidor corriendo en http://localhost:${PORT}`);
-      console.log(`Prueba CORS: http://localhost:${PORT}/api/test`);
-      console.log(`CORS permitiendo orígenes:`, corsOptions.origin);
-    });
-  } catch (error) {
-    console.error('No se pudo conectar a MongoDB:', error.message);
-    process.exit(1);
-  }
-}
-
-startServer();
-
-process.on('SIGTERM', async () => {
-  await client.close();
-  console.log('Conexión a MongoDB cerrada');
-  process.exit(0);
+// ─── Health check ────────────────────────────────────────────────────────────
+app.get('/api/test', function(req, res) {
+    res.json({ message: 'Servidor IVD con PostgreSQL funcionando 🚀', timestamp: new Date() });
+});
+app.get('/', function(req, res) {
+    res.send('Servidor IVD conectado a PostgreSQL 🚀');
 });
 
-process.on('SIGINT', async () => {
-  await client.close();
-  console.log('Conexión a MongoDB cerrada');
-  process.exit(0);
+var PORT = process.env.PORT || 5000;
+app.listen(PORT, function() {
+    console.log('Servidor corriendo en http://localhost:' + PORT);
 });
