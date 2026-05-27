@@ -1,5 +1,5 @@
 //src/controllers/entrenadores.controller.js
-var Entrenadores = require('../model/entrenadores.model');
+var Entrenadores = require('../models/entrenadores.model');
 
 var ESTADOS_VALIDOS = ['pendiente', 'aceptada', 'rechazada'];
 

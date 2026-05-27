@@ -1,6 +1,6 @@
 //src/controllers/login.controller.js
 var bcrypt = require('bcrypt');
-var Login  = require('../model/login.model');
+var Login  = require('../models/login.model');
 
 //Helpers para construir la respuesta según rol 
 function camposAtleta(user) {

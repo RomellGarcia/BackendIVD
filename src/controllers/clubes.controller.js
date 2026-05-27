@@ -1,5 +1,5 @@
 //src/controllers/clubes.controller.js
-var Club = require('../model/club.model');
+var Club = require('../models/club.model');
 
 //Helpers
 function validarTelefono(telefono) {

@@ -1,5 +1,5 @@
 // src/controllers/entrenador.controller.js
-var Entrenador = require('../model/entrenador.model');
+var Entrenador = require('../models/entrenador.model');
 
 //GET/api/entrenador/stats/:id
 function obtenerStats(req, res) {

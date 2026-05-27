@@ -1,5 +1,5 @@
 //src/controllers/resultados.controller.js
-var Resultado = require('../model/resultado.model');
+var Resultado = require('../models/resultado.model');
 
 //POST /api/resultados
 function crear(req, res) {
@@ -58,7 +58,7 @@ function crear(req, res) {
         })
         .catch(function(error) {
             if (error.status) return res.status(error.status).json({ message: error.message });
-            console.error('❌ Error al crear resultado:', error);
+            console.error('Error al crear resultado:', error);
             res.status(500).json({ message: 'Error al crear resultado', error: error.message });
         });
 }

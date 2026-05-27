@@ -1,5 +1,5 @@
 // src/controllers/eventos.controller.js
-var Evento = require('../model/evento.model');
+var Evento = require('../models/evento.model');
 
 //calcular edad real a partir de fechaNacimiento
 function calcularEdad(fechaNacimiento) {
