@@ -1,93 +1,102 @@
-var pool = require('../config/db');
+// src/controllers/entrenadores.controller.js
+var Entrenadores = require('../models/entrenadores.model');
+
+var ESTADOS_VALIDOS = ['pendiente', 'aceptada', 'rechazada'];
 
 // GET /api/entrenadores/club/:clubId
-function entrenadorespPorClub(req, res) {
+function obtenerPorClub(req, res) {
     var clubId = req.params.clubId;
 
-    pool.query('SELECT id FROM clubes WHERE id = $1', [clubId])
-        .then(function(result) {
-            if (result.rows.length === 0) return Promise.reject({ status: 404, error: 'Club no encontrado' });
-            return pool.query(
-                `SELECT u.id, u.nombre, u.apellido_paterno, u.apellido_materno,
-                        u.email, u.telefono, g.nombre AS sexo,
-                        e.anos_experiencia, e.estado
-                 FROM usuarios u
-                 JOIN entrenadores e ON u.id = e.usuario_id
-                 LEFT JOIN generos g ON u.genero_id = g.id
-                 WHERE e.club_id = $1
-                 ORDER BY u.nombre, u.apellido_paterno`,
-                [clubId]
-            );
+    Entrenadores.verificarClub(clubId)
+        .then(function(club) {
+            if (!club) throw { status: 404, message: 'Club no encontrado' };
+            return Entrenadores.obtenerEntrenadoresPorClub(clubId);
         })
-        .then(function(result) { res.json(result.rows); })
-        .catch(function(err) {
-            if (err.status) return res.status(err.status).json({ error: err.error });
-            console.error('Error al obtener entrenadores del club:', err);
+        .then(function(entrenadores) {
+            res.json(entrenadores);
+        })
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            console.error('❌ Error al obtener entrenadores del club:', error);
             res.status(500).json({ error: 'Error interno del servidor' });
         });
 }
 
 // GET /api/entrenadores/solicitudes-club/:clubId
-function solicitudesPorClub(req, res) {
+function obtenerSolicitudesPorClub(req, res) {
     var clubId = req.params.clubId;
 
-    pool.query('SELECT id FROM clubes WHERE id = $1', [clubId])
-        .then(function(result) {
-            if (result.rows.length === 0) return Promise.reject({ status: 404, error: 'Club no encontrado' });
-            return pool.query(
-                `SELECT se.id, se.estado, se.entrenador_id,
-                        u.nombre, u.apellido_paterno, u.apellido_materno,
-                        u.email, u.telefono
-                 FROM solicitudes_entrenadores se
-                 JOIN entrenadores e ON se.entrenador_id = e.id
-                 JOIN usuarios u ON e.usuario_id = u.id
-                 WHERE se.club_id = $1
-                 ORDER BY se.id DESC`,
-                [clubId]
-            );
+    Entrenadores.verificarClub(clubId)
+        .then(function(club) {
+            if (!club) throw { status: 404, message: 'Club no encontrado' };
+            return Entrenadores.obtenerSolicitudesPorClub(clubId);
         })
-        .then(function(result) { res.json(result.rows); })
-        .catch(function(err) {
-            if (err.status) return res.status(err.status).json({ error: err.error });
-            console.error('Error al obtener solicitudes:', err);
+        .then(function(solicitudes) {
+            res.json(solicitudes);
+        })
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            console.error('❌ Error al obtener solicitudes de entrenadores:', error);
             res.status(500).json({ error: 'Error interno del servidor' });
         });
 }
 
 // PUT /api/entrenadores/solicitudes/:solicitudId
-function procesarSolicitud(req, res) {
+function actualizarSolicitud(req, res) {
     var solicitudId = req.params.solicitudId;
     var estado      = req.body.estado;
 
-    if (!['pendiente','aceptada','rechazada'].includes(estado)) {
-        return res.status(400).json({ error: 'Estado inválido' });
+    if (!ESTADOS_VALIDOS.includes(estado)) {
+        return res.status(400).json({ error: 'Estado inválido. Valores permitidos: ' + ESTADOS_VALIDOS.join(', ') });
     }
 
-    pool.query('SELECT * FROM solicitudes_entrenadores WHERE id = $1', [solicitudId])
-        .then(function(result) {
-            if (result.rows.length === 0) return Promise.reject({ status: 404, error: 'Solicitud no encontrada' });
-            var solicitud = result.rows[0];
+    Entrenadores.obtenerSolicitudPorId(solicitudId)
+        .then(function(solicitud) {
+            if (!solicitud) throw { status: 404, message: 'Solicitud no encontrada' };
 
-            var promesas = [
-                pool.query('UPDATE solicitudes_entrenadores SET estado = $1 WHERE id = $2', [estado, solicitudId])
-            ];
-
-            if (estado === 'aceptada') {
-                promesas.push(pool.query(
-                    'UPDATE entrenadores SET club_id = $1 WHERE id = $2',
-                    [solicitud.club_id, solicitud.entrenador_id]
-                ));
-            }
-            return Promise.all(promesas);
+            // Actualizar estado de la solicitud
+            return Entrenadores.actualizarEstadoSolicitud(solicitudId, estado)
+                .then(function() {
+                    // Si se acepta, asignar entrenador al club
+                    if (estado === 'aceptada') {
+                        return Entrenadores.asignarEntrenadorAClub(solicitud.entrenador_id, solicitud.club_id);
+                    }
+                });
         })
         .then(function() {
             res.json({ message: 'Solicitud actualizada correctamente' });
         })
-        .catch(function(err) {
-            if (err.status) return res.status(err.status).json({ error: err.error });
-            console.error('Error al actualizar solicitud:', err);
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            console.error('❌ Error al actualizar solicitud de entrenador:', error);
             res.status(500).json({ error: 'Error interno del servidor' });
         });
 }
 
-module.exports = { entrenadorespPorClub, solicitudesPorClub, procesarSolicitud };
+// GET /api/entrenadores/test
+function test(req, res) {
+    Promise.all([
+        Entrenadores.obtenerTablas(),
+        Entrenadores.contarSolicitudes(),
+        Entrenadores.obtenerSolicitudesRecientes(5)
+    ])
+    .then(function(resultados) {
+        res.json({
+            message:           'Test completado',
+            tablas:            resultados[0],
+            solicitudesCount:  resultados[1],
+            solicitudesEjemplo: resultados[2]
+        });
+    })
+    .catch(function(error) {
+        console.error('❌ Error en test:', error);
+        res.status(500).json({ error: 'Error en test', details: error.message });
+    });
+}
+
+module.exports = {
+    obtenerPorClub,
+    obtenerSolicitudesPorClub,
+    actualizarSolicitud,
+    test
+};
