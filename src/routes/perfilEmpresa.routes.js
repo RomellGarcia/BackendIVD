@@ -1,10 +1,11 @@
-var express = require('express');
-var router  = express.Router();
-var ctrl    = require('../controllers/perfilEmpresa.controller');
+//src/routes/perfilEmpresa.routes.js
+var express    = require('express');
+var router     = express.Router();
+var controller = require('../controllers/perfilEmpresa.controller');
 
-router.get('/',    ctrl.obtener);
-router.post('/',   ctrl.crear);
-router.put('/',    ctrl.actualizar);
-router.delete('/', ctrl.eliminar);
+router.get('/',    controller.obtener);
+router.post('/',   controller.crear);
+router.put('/',    controller.actualizar);
+router.delete('/', controller.eliminar);
 
 module.exports = router;
