@@ -1,14 +1,23 @@
-var express = require('express');
-var router  = express.Router();
-var ctrl    = require('../controllers/entrenador.controller');
+// src/routes/entrenador.routes.js
+var express    = require('express');
+var router     = express.Router();
+var controller = require('../controllers/entrenador.controller');
 
-router.get('/stats/:id',               ctrl.stats);
-router.get('/activity/:id',            ctrl.activity);
-router.get('/atletas/:id',             ctrl.atletasDelEntrenador);
-router.post('/solicitar-club',         ctrl.solicitarClub);
-router.get('/solicitudes/:id',         ctrl.solicitudesEntrenador);
-router.get('/perfil/:id',              ctrl.perfil);
-router.put('/perfil/:id',              ctrl.actualizarPerfil);
-router.get('/verificar-estructura',    ctrl.verificarEstructura);
+// ── Rutas de datos ────────────────────────────────────────────────────────────
+router.get('/stats/:id',          controller.obtenerStats);
+router.get('/activity/:id',       controller.obtenerActividad);
+router.get('/atletas/:id',        controller.obtenerAtletas);
+router.get('/solicitudes/:id',    controller.obtenerSolicitudes);
+router.get('/perfil/:id',         controller.obtenerPerfil);
+router.put('/perfil/:id',         controller.actualizarPerfil);
+
+// ── Solicitud a club ──────────────────────────────────────────────────────────
+router.post('/verificar-datos',   controller.verificarDatos);
+router.post('/solicitar-club',    controller.solicitarClub);
+
+// ── Debug / diagnóstico ───────────────────────────────────────────────────────
+router.get('/verificar-estructura',   controller.verificarEstructura);
+router.get('/verificar-relacion/:id', controller.verificarRelacion);
+router.get('/debug/:id',              controller.debug);
 
 module.exports = router;
