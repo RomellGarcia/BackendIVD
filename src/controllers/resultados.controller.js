@@ -1,271 +1,281 @@
-var pool = require('../config/db');
+//src/controllers/resultados.controller.js
+var Resultado = require('../models/resultado.model');
 
-// POST /api/resultados
+//POST /api/resultados
 function crear(req, res) {
-    var eventoId       = req.body.eventoId;
-    var atletaId       = req.body.atletaId;
-    var entrenadorId   = req.body.entrenadorId  || null;
-    var categoriaId    = req.body.categoriaId   || null;
-    var generoId       = req.body.generoId      || null;
-    var disciplinaId   = req.body.disciplinaId  || null;
-    var anoCompetitivo = req.body.añoCompetitivo || new Date().getFullYear();
-    var pruebas        = req.body.pruebas        || [];
+    var eventoId            = req.body.eventoId;
+    var convocatoriaIndex   = req.body.convocatoriaIndex;
+    var atletaId            = req.body.atletaId;
+    var categoria           = req.body.categoria;
+    var sexo                = req.body.sexo;
+    var municipio           = req.body.municipio;
+    var club                = req.body.club;
+    var anoCompetitivo      = req.body.añoCompetitivo;
+    var pruebas             = req.body.pruebas;
+    var entrenadorId        = req.body.entrenadorId;
+    var lugarEntrenamiento  = req.body.lugarEntrenamiento;
 
-    if (!eventoId || !atletaId) {
-        return res.status(400).json({ message: 'Evento y atleta son obligatorios' });
+    if (!eventoId || !atletaId || !categoria) {
+        return res.status(400).json({ message: 'Evento, atleta y categoría son obligatorios' });
     }
 
-    Promise.all([
-        pool.query('SELECT id FROM eventos WHERE id = $1', [eventoId]),
-        pool.query('SELECT id FROM usuarios u JOIN atletas a ON u.id = a.usuario_id WHERE u.id = $1', [atletaId]),
-        entrenadorId
-            ? pool.query('SELECT id FROM entrenadores WHERE id = $1', [entrenadorId])
-            : Promise.resolve({ rows: [{}] })
-    ])
-    .then(function(results) {
-        if (results[0].rows.length === 0) return Promise.reject({ status: 404, message: 'Evento no encontrado' });
-        if (results[1].rows.length === 0) return Promise.reject({ status: 404, message: 'Atleta no encontrado' });
-        if (entrenadorId && results[2].rows.length === 0) return Promise.reject({ status: 404, message: 'Entrenador no encontrado' });
-
-        return pool.query(
-            `INSERT INTO resultados
-             (evento_id, atleta_id, entrenador_id, categoria_id, genero_id, disciplina_id, ano_competitivo, fecha_registro)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,NOW()) RETURNING id`,
-            [eventoId, atletaId, entrenadorId, categoriaId, generoId, disciplinaId, anoCompetitivo]
-        );
-    })
-    .then(function(r) {
-        var resultadoId = r.rows[0].id;
-        // Insertar pruebas en tabla separada pruebas_resultado
-        if (pruebas.length === 0) return res.status(201).json({ message: 'Resultado registrado', id: resultadoId });
-        var promesas = pruebas.map(function(p) {
-            return pool.query(
-                'INSERT INTO pruebas_resultado (resultado_id, nombre, marca, unidad) VALUES ($1,$2,$3,$4)',
-                [resultadoId, p.nombre || p.name || '', p.marca || p.mark || '', p.unidad || p.unit || '']
-            );
-        });
-        return Promise.all(promesas).then(function() {
-            res.status(201).json({ message: 'Resultado registrado correctamente', id: resultadoId });
-        });
-    })
-    .catch(function(err) {
-        if (err.status) return res.status(err.status).json({ message: err.message });
-        console.error('❌ Error al crear resultado:', err);
-        res.status(500).json({ message: 'Error al crear resultado', error: err.message });
-    });
-}
-
-// GET /api/resultados — con JOIN a pruebas_resultado
-function listar(req, res) {
-    var eventoId       = req.query.eventoId;
-    var atletaId       = req.query.atletaId;
-    var disciplinaId   = req.query.disciplinaId;
-    var anoCompetitivo = req.query.añoCompetitivo;
-    var limit          = parseInt(req.query.limit) || 100;
-
-    var query = `
-        SELECT r.*,
-               u.nombre, u.apellido_paterno, u.apellido_materno,
-               e.titulo AS nombre_evento, e.fecha AS fecha_evento,
-               d.nombre AS disciplina_nombre,
-               cat.nombre AS categoria_nombre,
-               g.nombre AS genero_nombre,
-               json_agg(json_build_object('id',pr.id,'nombre',pr.nombre,'marca',pr.marca,'unidad',pr.unidad))
-                   FILTER (WHERE pr.id IS NOT NULL) AS pruebas
-        FROM resultados r
-        JOIN usuarios u ON r.atleta_id = u.id
-        LEFT JOIN eventos e ON r.evento_id = e.id
-        LEFT JOIN disciplinas d ON r.disciplina_id = d.id
-        LEFT JOIN categorias cat ON r.categoria_id = cat.id
-        LEFT JOIN generos g ON r.genero_id = g.id
-        LEFT JOIN pruebas_resultado pr ON r.id = pr.resultado_id
-        WHERE 1=1
-    `;
-    var params = [];
-
-    if (eventoId)       { params.push(eventoId);                 query += ' AND r.evento_id = $' + params.length; }
-    if (atletaId)       { params.push(atletaId);                 query += ' AND r.atleta_id = $' + params.length; }
-    if (disciplinaId)   { params.push(disciplinaId);             query += ' AND r.disciplina_id = $' + params.length; }
-    if (anoCompetitivo) { params.push(parseInt(anoCompetitivo)); query += ' AND r.ano_competitivo = $' + params.length; }
-
-    query += ' GROUP BY r.id, u.nombre, u.apellido_paterno, u.apellido_materno, e.titulo, e.fecha, d.nombre, cat.nombre, g.nombre';
-    query += ' ORDER BY r.fecha_registro DESC LIMIT ' + limit;
-
-    pool.query(query, params)
-        .then(function(r) { res.json(r.rows); })
-        .catch(function(err) {
-            console.error('❌ Error al obtener resultados:', err);
-            res.status(500).json({ message: 'Error al obtener resultados', error: err.message });
-        });
-}
-
-// GET /api/resultados/:id
-function obtener(req, res) {
-    pool.query(
-        `SELECT r.*,
-                u.nombre, u.apellido_paterno,
-                e.titulo AS nombre_evento,
-                d.nombre AS disciplina,
-                cat.nombre AS categoria,
-                g.nombre AS genero,
-                json_agg(json_build_object('id',pr.id,'nombre',pr.nombre,'marca',pr.marca,'unidad',pr.unidad))
-                    FILTER (WHERE pr.id IS NOT NULL) AS pruebas
-         FROM resultados r
-         JOIN usuarios u ON r.atleta_id = u.id
-         LEFT JOIN eventos e ON r.evento_id = e.id
-         LEFT JOIN disciplinas d ON r.disciplina_id = d.id
-         LEFT JOIN categorias cat ON r.categoria_id = cat.id
-         LEFT JOIN generos g ON r.genero_id = g.id
-         LEFT JOIN pruebas_resultado pr ON r.id = pr.resultado_id
-         WHERE r.id = $1
-         GROUP BY r.id, u.nombre, u.apellido_paterno, e.titulo, d.nombre, cat.nombre, g.nombre`,
-        [req.params.id]
-    )
-    .then(function(r) {
-        if (r.rows.length === 0) return res.status(404).json({ message: 'Resultado no encontrado' });
-        res.json(r.rows[0]);
-    })
-    .catch(function(err) { res.status(500).json({ message: 'Error al obtener resultado', error: err.message }); });
-}
-
-// PUT /api/resultados/:id
-function actualizar(req, res) {
-    var id  = req.params.id;
-    var campos = { categoria_id: 'categoriaId', genero_id: 'generoId', disciplina_id: 'disciplinaId',
-                   entrenador_id: 'entrenadorId', ano_competitivo: 'añoCompetitivo' };
-    var sets = []; var params = [];
-
-    Object.keys(campos).forEach(function(col) {
-        var bodyKey = campos[col];
-        if (req.body[bodyKey] !== undefined) {
-            params.push(req.body[bodyKey]);
-            sets.push(col + ' = $' + params.length);
-        }
-    });
-
-    var promesas = [];
-    if (sets.length > 0) {
-        params.push(id);
-        promesas.push(pool.query('UPDATE resultados SET ' + sets.join(', ') + ' WHERE id = $' + params.length, params));
-    }
-    // Actualizar pruebas: borrar e insertar
-    if (req.body.pruebas !== undefined) {
-        promesas.push(
-            pool.query('DELETE FROM pruebas_resultado WHERE resultado_id = $1', [id])
-                .then(function() {
-                    var pp = req.body.pruebas.map(function(p) {
-                        return pool.query('INSERT INTO pruebas_resultado (resultado_id, nombre, marca, unidad) VALUES ($1,$2,$3,$4)',
-                            [id, p.nombre || '', p.marca || '', p.unidad || '']);
-                    });
-                    return Promise.all(pp);
-                })
-        );
-    }
+    //Verificar evento, atleta y entrenador en paralelo
+    var promesas = [
+        Resultado.verificarEvento(eventoId),
+        Resultado.verificarAtleta(atletaId)
+    ];
+    if (entrenadorId) promesas.push(Resultado.verificarEntrenador(entrenadorId));
 
     Promise.all(promesas)
-        .then(function() { res.json({ message: 'Resultado actualizado correctamente' }); })
-        .catch(function(err) { res.status(500).json({ message: 'Error al actualizar resultado', error: err.message }); });
-}
+        .then(function(resultados) {
+            var evento    = resultados[0];
+            var atleta    = resultados[1];
+            var entrenador = entrenadorId ? resultados[2] : true;
 
-// DELETE /api/resultados/:id
-function eliminar(req, res) {
-    pool.query('DELETE FROM pruebas_resultado WHERE resultado_id = $1', [req.params.id])
-        .then(function() { return pool.query('DELETE FROM resultados WHERE id = $1', [req.params.id]); })
-        .then(function(r) {
-            if (r.rowCount === 0) return res.status(404).json({ message: 'Resultado no encontrado' });
-            res.json({ message: 'Resultado eliminado correctamente' });
+            if (!evento)     throw { status: 404, message: 'Evento no encontrado' };
+            if (!atleta)     throw { status: 404, message: 'Atleta no encontrado' };
+            if (!entrenador) throw { status: 404, message: 'Entrenador no encontrado' };
+
+            return Resultado.crear({
+                eventoId,
+                convocatoriaIndex,
+                atletaId,
+                categoria,
+                sexo,
+                municipio,
+                club,
+                anoCompetitivo,
+                pruebas,
+                entrenadorId:        entrenadorId || null,
+                lugarEntrenamiento,
+                nombreAtleta:  atleta.nombre + ' ' + atleta.apellidopa + ' ' + atleta.apellidoma,
+                nombreEvento:  evento.titulo,
+                fechaEvento:   evento.fecha
+            });
         })
-        .catch(function(err) { res.status(500).json({ message: 'Error al eliminar resultado', error: err.message }); });
-}
-
-// GET /api/resultados/evento/:eventoId
-function porEvento(req, res) {
-    pool.query('SELECT * FROM resultados WHERE evento_id = $1 ORDER BY fecha_registro DESC', [req.params.eventoId])
-        .then(function(r) { res.json(r.rows); })
-        .catch(function(err) { res.status(500).json({ message: 'Error al obtener resultados del evento', error: err.message }); });
-}
-
-// GET /api/resultados/atleta/:atletaId
-function porAtleta(req, res) {
-    pool.query('SELECT * FROM resultados WHERE atleta_id = $1 ORDER BY fecha_registro DESC', [req.params.atletaId])
-        .then(function(r) { res.json(r.rows); })
-        .catch(function(err) { res.status(500).json({ message: 'Error al obtener resultados del atleta', error: err.message }); });
-}
-
-// GET /api/resultados/club/:clubId — busca por atletas del club
-function porClub(req, res) {
-    var clubId = req.params.clubId;
-    pool.query('SELECT id FROM clubes WHERE id = $1', [clubId])
-        .then(function(r) {
-            if (r.rows.length === 0) return Promise.reject({ status: 404, message: 'Club no encontrado' });
-            return pool.query(
-                `SELECT r.* FROM resultados r
-                 JOIN atletas a ON r.atleta_id = a.usuario_id
-                 WHERE a.club_id = $1 ORDER BY r.fecha_registro DESC`,
-                [clubId]
-            );
+        .then(function(resultado) {
+            res.status(201).json(resultado);
         })
-        .then(function(r) { res.json(r.rows); })
-        .catch(function(err) {
-            if (err.status) return res.status(err.status).json({ message: err.message });
-            res.status(500).json({ message: 'Error al obtener resultados del club', error: err.message });
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ message: error.message });
+            console.error('❌ Error al crear resultado:', error);
+            res.status(500).json({ message: 'Error al crear resultado', error: error.message });
         });
 }
 
-// GET /api/resultados/entrenador/:entrenadorId
-function porEntrenador(req, res) {
-    pool.query(
-        `SELECT e.id FROM entrenadores e JOIN usuarios u ON e.usuario_id = u.id WHERE u.id = $1`,
-        [req.params.entrenadorId]
-    )
-    .then(function(r) {
-        if (r.rows.length === 0) return Promise.reject({ status: 404, message: 'Entrenador no encontrado' });
-        var entId = r.rows[0].id;
-        return pool.query('SELECT * FROM resultados WHERE entrenador_id = $1 ORDER BY fecha_registro DESC', [entId]);
+//GET/api/resultados
+function obtenerTodos(req, res) {
+    Resultado.obtenerConFiltros({
+        eventoId:       req.query.eventoId       || null,
+        atletaId:       req.query.atletaId       || null,
+        categoria:      req.query.categoria      || null,
+        club:           req.query.club           || null,
+        anoCompetitivo: req.query.añoCompetitivo ? parseInt(req.query.añoCompetitivo, 10) : null,
+        limit:          req.query.limit          ? parseInt(req.query.limit, 10) : 100
     })
-    .then(function(r) { res.json(r.rows); })
-    .catch(function(err) {
-        if (err.status) return res.status(err.status).json({ message: err.message });
-        res.status(500).json({ message: 'Error al obtener resultados del entrenador', error: err.message });
+    .then(function(resultados) { res.json(resultados); })
+    .catch(function(error) {
+        console.error('Error al obtener resultados:', error);
+        res.status(500).json({ message: 'Error al obtener resultados', error: error.message });
     });
 }
 
-// GET /api/resultados/estadisticas/generales
-function estadisticasGenerales(req, res) {
-    pool.query(
-        `SELECT COUNT(*) AS total_resultados,
-                COUNT(DISTINCT evento_id) AS total_eventos,
-                COUNT(DISTINCT atleta_id) AS total_atletas
-         FROM resultados`
-    )
-    .then(function(r) { res.json(r.rows[0] || {}); })
-    .catch(function(err) { res.status(500).json({ message: 'Error al obtener estadísticas', error: err.message }); });
+//GET/api/resultados/:id
+function obtenerPorId(req, res) {
+    Resultado.obtenerPorId(req.params.id)
+        .then(function(resultado) {
+            if (!resultado) return res.status(404).json({ message: 'Resultado no encontrado' });
+            res.json(resultado);
+        })
+        .catch(function(error) {
+            console.error('Error al obtener resultado:', error);
+            res.status(500).json({ message: 'Error al obtener resultado', error: error.message });
+        });
 }
 
-// GET /api/resultados/estadisticas/club/:clubId
-function estadisticasClub(req, res) {
-    pool.query('SELECT id FROM clubes WHERE id = $1', [req.params.clubId])
-        .then(function(r) {
-            if (r.rows.length === 0) return Promise.reject({ status: 404, message: 'Club no encontrado' });
-            return pool.query(
-                `SELECT COUNT(*) AS total_resultados,
-                        COUNT(DISTINCT r.atleta_id) AS total_atletas,
-                        COUNT(DISTINCT r.evento_id) AS total_eventos
-                 FROM resultados r
-                 JOIN atletas a ON r.atleta_id = a.usuario_id
-                 WHERE a.club_id = $1`,
-                [req.params.clubId]
-            );
+//PUT/api/resultados/:id
+function actualizar(req, res) {
+    var id = req.params.id;
+
+    Resultado.obtenerPorId(id)
+        .then(function(existente) {
+            if (!existente) throw { status: 404, message: 'Resultado no encontrado' };
+
+            var promesas = [];
+
+            //Verificar evento si cambia
+            if (req.body.eventoId && req.body.eventoId !== String(existente.evento_id)) {
+                promesas.push(
+                    Resultado.verificarEvento(req.body.eventoId).then(function(e) {
+                        if (!e) throw { status: 404, message: 'Evento no encontrado' };
+                    })
+                );
+            }
+            //Verificar atleta si cambia
+            if (req.body.atletaId && req.body.atletaId !== String(existente.atleta_id)) {
+                promesas.push(
+                    Resultado.verificarAtleta(req.body.atletaId).then(function(a) {
+                        if (!a) throw { status: 404, message: 'Atleta no encontrado' };
+                    })
+                );
+            }
+            //Verificar entrenador si cambia
+            if (req.body.entrenadorId && req.body.entrenadorId !== String(existente.entrenador_id)) {
+                promesas.push(
+                    Resultado.verificarEntrenador(req.body.entrenadorId).then(function(e) {
+                        if (!e) throw { status: 404, message: 'Entrenador no encontrado' };
+                    })
+                );
+            }
+
+            return Promise.all(promesas).then(function() { return existente; });
         })
-        .then(function(r) { res.json(r.rows[0] || {}); })
-        .catch(function(err) {
-            if (err.status) return res.status(err.status).json({ message: err.message });
-            res.status(500).json({ message: 'Error al obtener estadísticas del club', error: err.message });
+        .then(function(existente) {
+            return Resultado.actualizar(id, {
+                eventoId:           req.body.eventoId          !== undefined ? req.body.eventoId          : existente.evento_id,
+                convocatoriaIndex:  req.body.convocatoriaIndex !== undefined ? req.body.convocatoriaIndex  : existente.convocatoria_index,
+                atletaId:           req.body.atletaId          !== undefined ? req.body.atletaId           : existente.atleta_id,
+                categoria:          req.body.categoria         !== undefined ? req.body.categoria          : existente.categoria,
+                sexo:               req.body.sexo              !== undefined ? req.body.sexo               : existente.sexo,
+                municipio:          req.body.municipio         !== undefined ? req.body.municipio          : existente.municipio,
+                club:               req.body.club              !== undefined ? req.body.club               : existente.club,
+                anoCompetitivo:     req.body.añoCompetitivo    !== undefined ? req.body.añoCompetitivo      : existente.ano_competitivo,
+                pruebas:            req.body.pruebas           !== undefined ? req.body.pruebas            : existente.pruebas,
+                entrenadorId:       req.body.entrenadorId      !== undefined ? req.body.entrenadorId       : existente.entrenador_id,
+                lugarEntrenamiento: req.body.lugarEntrenamiento !== undefined ? req.body.lugarEntrenamiento : existente.lugar_entrenamiento
+            });
+        })
+        .then(function(actualizado) {
+            if (!actualizado) return res.status(404).json({ message: 'Resultado no encontrado' });
+            res.json(actualizado);
+        })
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ message: error.message });
+            console.error('Error al actualizar resultado:', error);
+            res.status(500).json({ message: 'Error al actualizar resultado', error: error.message });
+        });
+}
+
+//DELETE/api/resultados/:id
+function eliminar(req, res) {
+    Resultado.eliminar(req.params.id)
+        .then(function(eliminado) {
+            if (!eliminado) return res.status(404).json({ message: 'Resultado no encontrado' });
+            res.json({ message: 'Resultado eliminado correctamente' });
+        })
+        .catch(function(error) {
+            console.error('Error al eliminar resultado:', error);
+            res.status(500).json({ message: 'Error al eliminar resultado', error: error.message });
+        });
+}
+
+//GET/api/resultados/evento/:eventoId
+function obtenerPorEvento(req, res) {
+    Resultado.obtenerPorEvento(req.params.eventoId)
+        .then(function(resultados) { res.json(resultados); })
+        .catch(function(error) {
+            console.error('Error al obtener resultados del evento:', error);
+            res.status(500).json({ message: 'Error al obtener resultados del evento', error: error.message });
+        });
+}
+
+//GET/api/resultados/atleta/:atletaId
+function obtenerPorAtleta(req, res) {
+    Resultado.obtenerPorAtleta(req.params.atletaId)
+        .then(function(resultados) { res.json(resultados); })
+        .catch(function(error) {
+            console.error('Error al obtener resultados del atleta:', error);
+            res.status(500).json({ message: 'Error al obtener resultados del atleta', error: error.message });
+        });
+}
+
+//GET/api/resultados/club/:clubId
+function obtenerPorClub(req, res) {
+    var clubId = req.params.clubId;
+
+    Resultado.verificarClub(clubId)
+        .then(function(club) {
+            if (!club) throw { status: 404, message: 'Club no encontrado' };
+            console.log('Club encontrado:', club.nombre);
+            return Resultado.obtenerPorClub(clubId);
+        })
+        .then(function(resultados) {
+            console.log('Resultados encontrados para el club:', resultados.length);
+            res.json(resultados);
+        })
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ message: error.message });
+            console.error('Error al obtener resultados del club:', error);
+            res.status(500).json({ message: 'Error al obtener resultados del club', error: error.message });
+        });
+}
+
+//GET/api/resultados/entrenador/:entrenadorId
+function obtenerPorEntrenador(req, res) {
+    var entrenadorId = req.params.entrenadorId;
+
+    Resultado.verificarEntrenador(entrenadorId)
+        .then(function(entrenador) {
+            if (!entrenador) throw { status: 404, message: 'Entrenador no encontrado' };
+            return Resultado.obtenerPorEntrenador(entrenadorId);
+        })
+        .then(function(resultados) {
+            console.log('Resultados encontrados para el entrenador:', resultados.length);
+            res.json(resultados);
+        })
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ message: error.message });
+            console.error('Error al obtener resultados del entrenador:', error);
+            res.status(500).json({ message: 'Error al obtener resultados del entrenador', error: error.message });
+        });
+}
+
+//GET/api/resultados/estadisticas/generales
+function estadisticasGenerales(req, res) {
+    Resultado.estadisticasGenerales()
+        .then(function(stats) { res.json(stats); })
+        .catch(function(error) {
+            console.error('❌ Error al obtener estadísticas:', error);
+            res.status(500).json({ message: 'Error al obtener estadísticas', error: error.message });
+        });
+}
+
+//GET/api/resultados/estadisticas/club/:clubId
+function estadisticasPorClub(req, res) {
+    Resultado.verificarClub(req.params.clubId)
+        .then(function(club) {
+            if (!club) throw { status: 404, message: 'Club no encontrado' };
+            return Resultado.estadisticasPorClub(club.nombre);
+        })
+        .then(function(stats) { res.json(stats); })
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ message: error.message });
+            console.error('❌ Error al obtener estadísticas del club:', error);
+            res.status(500).json({ message: 'Error al obtener estadísticas del club', error: error.message });
+        });
+}
+
+//GET/api/resultados/debug/clubes
+function debugClubes(req, res) {
+    Resultado.debugClubes()
+        .then(function(datos) { res.json(datos); })
+        .catch(function(error) {
+            console.error('Error en debug:', error);
+            res.status(500).json({ message: 'Error en debug', error: error.message });
         });
 }
 
 module.exports = {
-    crear, listar, obtener, actualizar, eliminar,
-    porEvento, porAtleta, porClub, porEntrenador,
-    estadisticasGenerales, estadisticasClub
+    crear,
+    obtenerTodos,
+    obtenerPorId,
+    actualizar,
+    eliminar,
+    obtenerPorEvento,
+    obtenerPorAtleta,
+    obtenerPorClub,
+    obtenerPorEntrenador,
+    estadisticasGenerales,
+    estadisticasPorClub,
+    debugClubes
 };

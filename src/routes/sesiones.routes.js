@@ -1,16 +1,17 @@
-var express = require('express');
-var router  = express.Router();
-var ctrl    = require('../controllers/sesiones.controller');
+//src/routes/sesiones.routes.js
+var express    = require('express');
+var router     = express.Router();
+var controller = require('../controllers/sesiones.controller');
 
-// Rutas específicas ANTES de la paramétrica /:sesionId
-router.get('/entrenador/:entrenadorId', ctrl.porEntrenador);
-router.get('/club/:clubId',             ctrl.porClub);
-router.get('/atleta/:atletaId',         ctrl.porAtleta);
+//Rutas fijas
+router.post('/crear',                     controller.crear);
+router.get('/entrenador/:entrenadorId',   controller.obtenerPorEntrenador);
+router.get('/club/:clubId',               controller.obtenerPorClub);
+router.get('/atleta/:atletaId',           controller.obtenerPorAtleta);
 
-// CRUD
-router.post('/crear',        ctrl.crear);
-router.get('/:sesionId',     ctrl.obtener);
-router.put('/:sesionId',     ctrl.actualizar);
-router.delete('/:sesionId',  ctrl.eliminar);
+//Rutas con parámetro
+router.get('/:sesionId',    controller.obtenerPorId);
+router.put('/:sesionId',    controller.actualizar);
+router.delete('/:sesionId', controller.eliminar);
 
 module.exports = router;
