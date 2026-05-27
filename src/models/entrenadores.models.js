@@ -1,4 +1,4 @@
-// src/models/entrenadores.model.js
+//src/models/entrenadores.model.js
 var pool = require('../config/db');
 
 function verificarClub(clubId) {

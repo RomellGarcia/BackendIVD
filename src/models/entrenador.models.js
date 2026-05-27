@@ -1,4 +1,4 @@
-// src/models/entrenador.model.js
+//src/models/entrenador.model.js
 var pool = require('../config/db');
 
 function obtenerPorId(id) {
@@ -74,7 +74,7 @@ function obtenerSolicitudesPorEntrenador(entrenadorId) {
 }
 
 function actualizarPerfil(id, datos) {
-    // Construir SET dinámico solo con los campos que vienen
+    //Construir SET dinámico solo con los campos que vienen
     var campos  = [];
     var valores = [];
     var idx     = 1;
@@ -84,7 +84,7 @@ function actualizarPerfil(id, datos) {
         'certificaciones', 'especialidades', 'anos_experiencia', 'estado'
     ];
 
-    // Mapeo de nombres del body a columnas de la tabla
+    //Mapeo de nombres del body a columnas de la tabla
     var mapaColumnas = {
         nombre:           'nombre',
         apellidopa:       'apellidopa',
@@ -115,7 +115,7 @@ function actualizarPerfil(id, datos) {
     ).then(function(result) { return result.rows[0] || null; });
 }
 
-// ── Para el endpoint de debug/verificar-estructura ───────────────────────────
+//Para el endpoint de debug/verificar-estructura
 
 function obtenerTodosEntrenadores() {
     return pool.query(

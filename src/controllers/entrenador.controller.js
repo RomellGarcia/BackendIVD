@@ -1,7 +1,7 @@
 // src/controllers/entrenador.controller.js
 var Entrenador = require('../models/entrenador.model');
 
-// GET /api/entrenador/stats/:id
+//GET/api/entrenador/stats/:id
 function obtenerStats(req, res) {
     var entrenadorId = req.params.id;
 
@@ -26,17 +26,17 @@ function obtenerStats(req, res) {
                 totalAtletas:     atletas.length,
                 atletasActivos:   atletas.length,
                 eventosProximos:  eventosProximos,
-                sesionesEsteMes:  0  // TODO: implementar cuando exista tabla sesiones
+                sesionesEsteMes:  0
             });
         })
         .catch(function(error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
-            console.error('❌ Error al obtener estadísticas del entrenador:', error);
+            console.error('Error al obtener estadísticas del entrenador:', error);
             res.status(500).json({ error: 'Error interno del servidor' });
         });
 }
 
-// GET /api/entrenador/activity/:id
+//GET/api/entrenador/activity/:id
 function obtenerActividad(req, res) {
     var entrenadorId = req.params.id;
 
@@ -63,12 +63,12 @@ function obtenerActividad(req, res) {
         })
         .catch(function(error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
-            console.error('❌ Error al obtener actividad del entrenador:', error);
+            console.error('Error al obtener actividad del entrenador:', error);
             res.status(500).json({ error: 'Error interno del servidor' });
         });
 }
 
-// GET /api/entrenador/atletas/:id
+//GET/api/entrenador/atletas/:id
 function obtenerAtletas(req, res) {
     var entrenadorId = req.params.id;
 
@@ -83,12 +83,12 @@ function obtenerAtletas(req, res) {
         })
         .catch(function(error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
-            console.error('❌ Error al obtener atletas del entrenador:', error);
+            console.error('Error al obtener atletas del entrenador:', error);
             res.status(500).json({ error: 'Error interno del servidor', details: error.message });
         });
 }
 
-// GET /api/entrenador/debug/:id
+//GET api/entrenador/debug/:id
 function debug(req, res) {
     var entrenadorId = req.params.id;
     var entrenadorGuardado;
@@ -133,12 +133,12 @@ function debug(req, res) {
         })
         .catch(function(error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
-            console.error('❌ Error en debug:', error);
+            console.error('Error en debug:', error);
             res.status(500).json({ error: 'Error interno del servidor', details: error.message });
         });
 }
 
-// GET /api/entrenador/verificar-relacion/:id
+//GET/api/entrenador/verificar-relacion/:id
 function verificarRelacion(req, res) {
     var entrenadorId = req.params.id;
 
@@ -228,12 +228,12 @@ function verificarEstructura(req, res) {
         });
     })
     .catch(function(error) {
-        console.error('❌ Error al verificar estructura:', error);
+        console.error('Error al verificar estructura:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     });
 }
 
-// POST /api/entrenador/verificar-datos
+//POST/api/entrenador/verificar-datos
 function verificarDatos(req, res) {
     var entrenadorId = req.body.entrenadorId;
     var clubId       = req.body.clubId;
@@ -266,12 +266,12 @@ function verificarDatos(req, res) {
     })
     .catch(function(error) {
         if (error.status) return res.status(error.status).json({ error: error.message });
-        console.error('❌ Error al verificar datos:', error);
+        console.error('Error al verificar datos:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     });
 }
 
-// POST /api/entrenador/solicitar-club
+//POST/api/entrenador/solicitar-club
 function solicitarClub(req, res) {
     var entrenadorId = req.body.entrenadorId;
     var clubId       = req.body.clubId;
@@ -307,24 +307,24 @@ function solicitarClub(req, res) {
     })
     .catch(function(error) {
         if (error.status) return res.status(error.status).json({ error: error.message });
-        console.error('❌ Error al enviar solicitud:', error);
+        console.error('Error al enviar solicitud:', error);
         res.status(500).json({ error: 'Error interno del servidor', details: error.message });
     });
 }
 
-// GET /api/entrenador/solicitudes/:id
+//GET/api/entrenador/solicitudes/:id
 function obtenerSolicitudes(req, res) {
     var entrenadorId = req.params.id;
 
     Entrenador.obtenerSolicitudesPorEntrenador(entrenadorId)
         .then(function(solicitudes) { res.json(solicitudes); })
         .catch(function(error) {
-            console.error('❌ Error al obtener solicitudes:', error);
+            console.error('Error al obtener solicitudes:', error);
             res.status(500).json({ error: 'Error interno del servidor' });
         });
 }
 
-// GET /api/entrenador/perfil/:id
+//GET/api/entrenador/perfil/:id
 function obtenerPerfil(req, res) {
     var entrenadorId = req.params.id;
 
@@ -341,12 +341,12 @@ function obtenerPerfil(req, res) {
         })
         .catch(function(error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
-            console.error('❌ Error al obtener perfil del entrenador:', error);
+            console.error('Error al obtener perfil del entrenador:', error);
             res.status(500).json({ error: 'Error interno del servidor' });
         });
 }
 
-// PUT /api/entrenador/perfil/:id
+//PUT/api/entrenador/perfil/:id
 function actualizarPerfil(req, res) {
     var entrenadorId = req.params.id;
 
@@ -365,7 +365,7 @@ function actualizarPerfil(req, res) {
         })
         .catch(function(error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
-            console.error('❌ Error al actualizar perfil del entrenador:', error);
+            console.error('Error al actualizar perfil del entrenador:', error);
             res.status(500).json({ error: 'Error interno del servidor' });
         });
 }

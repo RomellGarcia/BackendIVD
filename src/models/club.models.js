@@ -1,4 +1,4 @@
-// src/models/club.model.js
+//src/models/club.model.js
 var pool = require('../config/db');
 var bcrypt = require('bcrypt');
 

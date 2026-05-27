@@ -1,9 +1,9 @@
-// src/controllers/entrenadores.controller.js
+//src/controllers/entrenadores.controller.js
 var Entrenadores = require('../models/entrenadores.model');
 
 var ESTADOS_VALIDOS = ['pendiente', 'aceptada', 'rechazada'];
 
-// GET /api/entrenadores/club/:clubId
+//GET/api/entrenadores/club/:clubId
 function obtenerPorClub(req, res) {
     var clubId = req.params.clubId;
 
@@ -17,12 +17,12 @@ function obtenerPorClub(req, res) {
         })
         .catch(function(error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
-            console.error('❌ Error al obtener entrenadores del club:', error);
+            console.error('Error al obtener entrenadores del club:', error);
             res.status(500).json({ error: 'Error interno del servidor' });
         });
 }
 
-// GET /api/entrenadores/solicitudes-club/:clubId
+//GET/api/entrenadores/solicitudes-club/:clubId
 function obtenerSolicitudesPorClub(req, res) {
     var clubId = req.params.clubId;
 
@@ -36,12 +36,12 @@ function obtenerSolicitudesPorClub(req, res) {
         })
         .catch(function(error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
-            console.error('❌ Error al obtener solicitudes de entrenadores:', error);
+            console.error('Error al obtener solicitudes de entrenadores:', error);
             res.status(500).json({ error: 'Error interno del servidor' });
         });
 }
 
-// PUT /api/entrenadores/solicitudes/:solicitudId
+//PUT/api/entrenadores/solicitudes/:solicitudId
 function actualizarSolicitud(req, res) {
     var solicitudId = req.params.solicitudId;
     var estado      = req.body.estado;
@@ -54,7 +54,7 @@ function actualizarSolicitud(req, res) {
         .then(function(solicitud) {
             if (!solicitud) throw { status: 404, message: 'Solicitud no encontrada' };
 
-            // Actualizar estado de la solicitud
+            //Actualizar estado de la solicitud
             return Entrenadores.actualizarEstadoSolicitud(solicitudId, estado)
                 .then(function() {
                     // Si se acepta, asignar entrenador al club
@@ -68,12 +68,12 @@ function actualizarSolicitud(req, res) {
         })
         .catch(function(error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
-            console.error('❌ Error al actualizar solicitud de entrenador:', error);
+            console.error('Error al actualizar solicitud de entrenador:', error);
             res.status(500).json({ error: 'Error interno del servidor' });
         });
 }
 
-// GET /api/entrenadores/test
+//GET/api/entrenadores/test
 function test(req, res) {
     Promise.all([
         Entrenadores.obtenerTablas(),
@@ -89,7 +89,7 @@ function test(req, res) {
         });
     })
     .catch(function(error) {
-        console.error('❌ Error en test:', error);
+        console.error('Error en test:', error);
         res.status(500).json({ error: 'Error en test', details: error.message });
     });
 }

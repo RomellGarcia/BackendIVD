@@ -1,4 +1,4 @@
-// src/routes/clubes.routes.js
+//src/routes/clubes.routes.js
 var express    = require('express');
 var router     = express.Router();
 var controller = require('../controllers/clubes.controller');

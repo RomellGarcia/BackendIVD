@@ -1,20 +1,18 @@
-// src/controllers/clubes.controller.js
+//src/controllers/clubes.controller.js
 var Club = require('../models/club.model');
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
+//Helpers
 function validarTelefono(telefono) {
     var limpio = telefono.replace(/\D/g, '');
     return limpio.length === 10 ? limpio : null;
 }
 
-// ── Controllers ──────────────────────────────────────────────────────────────
-
+//Controllers
 function obtenerTodos(req, res) {
     Club.obtenerTodos()
         .then(function(clubes) { res.json(clubes); })
         .catch(function(error) {
-            console.error('❌ Error al obtener clubes:', error);
+            console.error('Error al obtener clubes:', error);
             res.status(500).json({ error: 'Error al obtener clubes', details: error.message });
         });
 }
@@ -28,7 +26,7 @@ function obtenerPorId(req, res) {
             res.json(club);
         })
         .catch(function(error) {
-            console.error('❌ Error al obtener club:', error);
+            console.error('Error al obtener club:', error);
             res.status(500).json({ error: 'Error al obtener club', details: error.message });
         });
 }
@@ -44,23 +42,22 @@ function crear(req, res) {
     var password    = req.body.password;
     var rol         = req.body.rol     || 'club';
 
-    // Validar obligatorios
+    //Validar
     if (!nombre || !direccion || !telefono || !password) {
         return res.status(400).json({ error: 'Nombre, dirección, teléfono y contraseña son obligatorios' });
     }
 
-    // Validar teléfono
     var telefonoLimpio = validarTelefono(telefono);
     if (!telefonoLimpio) {
         return res.status(400).json({ error: 'El teléfono debe tener exactamente 10 dígitos' });
     }
 
-    // Validar nombre único
+    //Validar nombre unico
     Club.obtenerPorNombre(nombre, null)
         .then(function(existente) {
             if (existente) throw { status: 400, message: 'Ya existe un club con ese nombre' };
 
-            // Validar email único si se proporciona
+            //Validar email unico
             if (!email) return null;
             return Club.obtenerPorEmail(email, null).then(function(emailExistente) {
                 if (emailExistente) throw { status: 400, message: 'El email ya está registrado' };
@@ -89,27 +86,26 @@ function actualizar(req, res) {
     var descripcion = req.body.descripcion;
     var estado      = req.body.estado;
 
-    // Validar obligatorios
+    //Validar
     if (!nombre || !direccion || !telefono) {
         return res.status(400).json({ error: 'Nombre, dirección y teléfono son obligatorios' });
     }
 
-    // Validar teléfono
     var telefonoLimpio = validarTelefono(telefono);
     if (!telefonoLimpio) {
         return res.status(400).json({ error: 'El teléfono debe tener exactamente 10 dígitos' });
     }
 
-    // Verificar que el club existe
+    //Verificar que el club existe
     Club.obtenerPorId(id)
         .then(function(club) {
             if (!club) throw { status: 404, message: 'Club no encontrado' };
 
-            // Validar nombre único (excepto el actual)
+            //Validar nombre unico
             return Club.obtenerPorNombre(nombre, id).then(function(duplicado) {
                 if (duplicado) throw { status: 400, message: 'Ya existe otro club con ese nombre' };
 
-                // Validar email único si se proporciona
+                //Validar email unico
                 if (!email) return club;
                 return Club.obtenerPorEmail(email, id).then(function(emailDuplicado) {
                     if (emailDuplicado) throw { status: 400, message: 'El email ya está registrado por otro club' };
@@ -134,7 +130,7 @@ function actualizar(req, res) {
         })
         .catch(function(error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
-            console.error('❌ Error al actualizar club:', error);
+            console.error('Error al actualizar club:', error);
             res.status(500).json({ error: 'Error al actualizar club', details: error.message });
         });
 }
@@ -146,7 +142,7 @@ function eliminar(req, res) {
         .then(function(club) {
             if (!club) throw { status: 404, message: 'Club no encontrado' };
 
-            // Verificar atletas asociados
+            //Verificar atletas asociados
             return Club.contarAtletasPorClub(id).then(function(total) {
                 if (total > 0) {
                     throw {
@@ -165,7 +161,7 @@ function eliminar(req, res) {
         })
         .catch(function(error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
-            console.error('❌ Error al eliminar club:', error);
+            console.error('Error al eliminar club:', error);
             res.status(500).json({ error: 'Error al eliminar club', details: error.message });
         });
 }
@@ -174,7 +170,7 @@ function obtenerEstadisticas(req, res) {
     Club.obtenerEstadisticas()
         .then(function(stats) { res.json(stats); })
         .catch(function(error) {
-            console.error('❌ Error al obtener estadísticas:', error);
+            console.error('Error al obtener estadísticas:', error);
             res.status(500).json({ error: 'Error al obtener estadísticas', details: error.message });
         });
 }
@@ -200,7 +196,7 @@ function asociarAtletas(req, res) {
         })
         .catch(function(error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
-            console.error('❌ Error al asociar atletas:', error);
+            console.error('Error al asociar atletas:', error);
             res.status(500).json({ error: 'Error al asociar atletas', details: error.message });
         });
 }
@@ -222,7 +218,7 @@ function desasociarAtleta(req, res) {
         })
         .catch(function(error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
-            console.error('❌ Error al desasociar atleta:', error);
+            console.error('Error al desasociar atleta:', error);
             res.status(500).json({ error: 'Error al desasociar atleta', details: error.message });
         });
 }

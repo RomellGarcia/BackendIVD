@@ -1,4 +1,4 @@
-// src/routes/entrenadores.routes.js
+//src/routes/entrenadores.routes.js
 var express    = require('express');
 var router     = express.Router();
 var controller = require('../controllers/entrenadores.controller');

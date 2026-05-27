@@ -1,314 +1,371 @@
-var pool = require('../config/db');
+// src/controllers/eventos.controller.js
+var Evento = require('../models/evento.model');
 
-// Helper para obtener evento completo con convocatorias
-function obtenerEventoCompleto(eventoId) {
-    return pool.query(
-        `SELECT e.*,
-                json_agg(json_build_object(
-                    'id', c.id,
-                    'disciplina', d.nombre,
-                    'disciplina_id', c.disciplina_id,
-                    'categoria', cat.nombre,
-                    'categoria_id', c.categoria_id,
-                    'genero', g.nombre,
-                    'genero_id', c.genero_id,
-                    'edadMin', cat.edad_min,
-                    'edadMax', cat.edad_max,
-                    'estado', c.estado
-                )) FILTER (WHERE c.id IS NOT NULL) AS convocatorias
-         FROM eventos e
-         LEFT JOIN convocatorias c ON e.id = c.evento_id
-         LEFT JOIN disciplinas d ON c.disciplina_id = d.id
-         LEFT JOIN categorias cat ON c.categoria_id = cat.id
-         LEFT JOIN generos g ON c.genero_id = g.id
-         WHERE e.id = $1
-         GROUP BY e.id`,
-        [eventoId]
-    ).then(function(r) { return r.rows[0]; });
+//calcular edad real a partir de fechaNacimiento
+function calcularEdad(fechaNacimiento) {
+    var hoy     = new Date();
+    var fechaNac = new Date(fechaNacimiento);
+    var edad    = hoy.getFullYear() - fechaNac.getFullYear();
+    var mes     = hoy.getMonth() - fechaNac.getMonth();
+    if (mes < 0 || (mes === 0 && hoy.getDate() < fechaNac.getDate())) {
+        edad--;
+    }
+    return edad;
 }
 
-// POST /api/eventos
-function crearEvento(req, res) {
+//Validar convocatoria individual
+function validarConvocatoria(conv, indice) {
+    var prefijo = indice !== undefined ? 'Convocatoria ' + (indice + 1) + ': ' : '';
+
+    if (!conv.disciplina || !conv.categoria || !conv.genero ||
+        conv.edadMin === undefined || conv.edadMax === undefined) {
+        return prefijo + 'disciplina, categoría, género, edad mínima y máxima son requeridos';
+    }
+
+    var edadMinNum = parseInt(conv.edadMin, 10);
+    var edadMaxNum = parseInt(conv.edadMax, 10);
+
+    if (isNaN(edadMinNum) || isNaN(edadMaxNum)) {
+        return prefijo + 'La edad mínima y máxima deben ser números válidos';
+    }
+
+    return null;
+}
+
+//POST/api/eventos
+function crear(req, res) {
     var titulo        = req.body.titulo;
     var fecha         = req.body.fecha;
     var hora          = req.body.hora;
     var lugar         = req.body.lugar;
-    var descripcion   = req.body.descripcion || '';
+    var descripcion   = req.body.descripcion;
     var convocatorias = req.body.convocatorias;
 
-    if (!titulo || !fecha || !hora || !lugar || !convocatorias || !Array.isArray(convocatorias) || convocatorias.length === 0) {
+    if (!titulo || !fecha || !hora || !lugar || !Array.isArray(convocatorias) || convocatorias.length === 0) {
         return res.status(400).json({ message: 'Título, fecha, hora, lugar y al menos una convocatoria son requeridos' });
     }
 
+    //Validar cada convocatoria antes de tocar la BD
     for (var i = 0; i < convocatorias.length; i++) {
-        var conv = convocatorias[i];
-        if (!conv.disciplina || !conv.categoria || !conv.genero || conv.edadMin === undefined || conv.edadMax === undefined) {
-            return res.status(400).json({ message: 'Convocatoria ' + (i + 1) + ': disciplina, categoría, género, edadMin y edadMax son requeridos' });
-        }
+        var errorConv = validarConvocatoria(convocatorias[i], i);
+        if (errorConv) return res.status(400).json({ message: errorConv });
     }
 
-    // fecha_cierre = 24h antes del evento (igual que el original)
-    var fechaEvento  = new Date(fecha);
-    var fechaCierre  = new Date(fechaEvento.getTime() - 24 * 60 * 60 * 1000);
+    //Fecha de cierre: 24h antes del evento
+    var fechaEvento   = new Date(fecha);
+    var fechaCierre   = new Date(fechaEvento.getTime() - 24 * 60 * 60 * 1000);
 
-    pool.query(
-        `INSERT INTO eventos (titulo, fecha, hora, lugar, descripcion, estado, fecha_cierre, created_at)
-         VALUES ($1,$2,$3,$4,$5,true,$6,NOW()) RETURNING id`,
-        [titulo.trim(), fechaEvento, hora.trim(), lugar.trim(), descripcion.trim(), fechaCierre]
-    )
-    .then(function(result) {
-        var eventoId = result.rows[0].id;
-
-        var promesas = convocatorias.map(function(conv) {
-            return Promise.all([
-                pool.query('SELECT id FROM disciplinas WHERE LOWER(nombre) = LOWER($1)', [conv.disciplina.trim()])
-                    .then(function(r) {
-                        if (r.rows.length > 0) return r.rows[0].id;
-                        return pool.query('INSERT INTO disciplinas (nombre) VALUES ($1) RETURNING id', [conv.disciplina.trim()])
-                            .then(function(r2) { return r2.rows[0].id; });
-                    }),
-                pool.query('SELECT id FROM categorias WHERE LOWER(nombre) = LOWER($1)', [conv.categoria.trim()])
-                    .then(function(r) {
-                        if (r.rows.length > 0) return r.rows[0].id;
-                        return pool.query('INSERT INTO categorias (nombre, edad_min, edad_max) VALUES ($1,$2,$3) RETURNING id',
-                            [conv.categoria.trim(), parseInt(conv.edadMin), parseInt(conv.edadMax)])
-                            .then(function(r2) { return r2.rows[0].id; });
-                    }),
-                pool.query('SELECT id FROM generos WHERE LOWER(nombre) = LOWER($1)', [conv.genero.trim()])
-                    .then(function(r) { return r.rows.length > 0 ? r.rows[0].id : null; })
-            ]).then(function(ids) {
-                return pool.query(
-                    'INSERT INTO convocatorias (evento_id, disciplina_id, categoria_id, genero_id, estado, created_at) VALUES ($1,$2,$3,$4,true,NOW())',
-                    [eventoId, ids[0], ids[1], ids[2]]
-                );
-            });
-        });
-
-        return Promise.all(promesas).then(function() { return eventoId; });
+    Evento.crearEvento({
+        titulo:      titulo.trim(),
+        fecha:       fechaEvento,
+        hora:        hora.trim(),
+        lugar:       lugar.trim(),
+        descripcion: descripcion,
+        fechaCierre: fechaCierre
     })
-    .then(function(eventoId) { return obtenerEventoCompleto(eventoId); })
-    .then(function(evento) { res.status(201).json(evento); })
-    .catch(function(err) {
-        console.error('❌ Error al crear evento:', err);
-        res.status(500).json({ message: 'Error al crear el evento', error: err.message });
+    .then(function(evento) {
+        //Insertar convocatorias en secuencia
+        var promesas = convocatorias.map(function(conv) {
+            return Evento.crearConvocatoria(evento.id, conv);
+        });
+        return Promise.all(promesas).then(function(convsCreadas) {
+            evento.convocatorias = convsCreadas;
+            return evento;
+        });
+    })
+    .then(function(eventoCompleto) {
+        res.status(201).json(eventoCompleto);
+    })
+    .catch(function(error) {
+        console.error('Error al crear el evento:', error);
+        res.status(500).json({ message: 'Error al crear el evento', error: error.message });
     });
 }
 
-// GET /api/eventos
-function listarEventos(req, res) {
-    var limit = req.query.limit;
-    var query = `
-        SELECT e.id, e.titulo, e.fecha, e.hora, e.lugar, e.descripcion,
-               e.estado, e.fecha_cierre, e.created_at,
-               COUNT(DISTINCT i.id) AS total_inscritos
-        FROM eventos e
-        LEFT JOIN inscripciones i ON i.convocatoria_id IN (SELECT id FROM convocatorias WHERE evento_id = e.id)
-        WHERE e.estado = true
-        GROUP BY e.id
-        ORDER BY e.created_at DESC
-    `;
-    if (limit && !isNaN(parseInt(limit))) query += ' LIMIT ' + parseInt(limit);
+//POST/api/eventos/:eventoId/convocatorias
+function agregarConvocatoria(req, res) {
+    var eventoId    = req.params.eventoId;
+    var convocatoria = req.body;
 
-    pool.query(query)
-        .then(function(r) { res.json(r.rows); })
-        .catch(function(err) {
-            res.status(500).json({ message: 'Error al obtener eventos', error: err.message });
+    var errorConv = validarConvocatoria(convocatoria);
+    if (errorConv) return res.status(400).json({ message: errorConv });
+
+    Evento.obtenerPorId(eventoId)
+        .then(function(evento) {
+            if (!evento) throw { status: 404, message: 'Evento no encontrado' };
+            return Evento.crearConvocatoria(eventoId, convocatoria);
+        })
+        .then(function() {
+            return Evento.obtenerEventoConConvocatorias(eventoId);
+        })
+        .then(function(eventoActualizado) {
+            res.json(eventoActualizado);
+        })
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ message: error.message });
+            console.error('Error al agregar convocatoria:', error);
+            res.status(500).json({ message: 'Error al agregar convocatoria', error: error.message });
         });
 }
 
-// GET /api/eventos/convocatorias-para-atleta?edad=17&genero=masculino
+//GET/api/eventos
+function obtenerTodos(req, res) {
+    var limite = req.query.limit ? parseInt(req.query.limit, 10) : null;
+
+    Evento.obtenerTodos(isNaN(limite) ? null : limite)
+        .then(function(eventos) { res.json(eventos); })
+        .catch(function(error) {
+            console.error('Error al obtener eventos:', error);
+            res.status(500).json({ message: 'Error al obtener eventos', error: error.message });
+        });
+}
+
+//GET/api/eventos/convocatorias-para-atleta?edad=17&genero=masculino
 function convocatoriasParaAtleta(req, res) {
     var edad   = Number(req.query.edad);
     var genero = (req.query.genero || '').toLowerCase();
 
-    if (isNaN(edad)) return res.status(400).json({ message: 'Edad inválida o no proporcionada' });
-    if (!genero)     return res.status(400).json({ message: 'Género es requerido' });
-
-    pool.query(
-        `SELECT e.id AS _id, e.titulo, e.fecha, e.hora, e.lugar, e.descripcion,
-                e.fecha_cierre AS fechaCierre, e.estado,
-                c.id AS convocatoriaId,
-                d.nombre AS disciplina, cat.nombre AS categoria,
-                cat.edad_min AS edadMin, cat.edad_max AS edadMax,
-                g.nombre AS genero, g.nombre AS paraPersonas
-         FROM eventos e
-         JOIN convocatorias c ON e.id = c.evento_id
-         JOIN disciplinas d ON c.disciplina_id = d.id
-         JOIN categorias cat ON c.categoria_id = cat.id
-         JOIN generos g ON c.genero_id = g.id
-         WHERE e.fecha_cierre > NOW()
-           AND e.estado = true
-           AND c.estado = true
-           AND cat.edad_min <= $1
-           AND cat.edad_max >= $1
-           AND (LOWER(g.nombre) = $2 OR LOWER(g.nombre) = 'mixto')`,
-        [edad, genero]
-    )
-    .then(function(r) { res.json(r.rows); })
-    .catch(function(err) {
-        res.status(500).json({ message: 'Error al filtrar convocatorias', error: err.message });
-    });
-}
-
-// POST /api/eventos/inscripciones
-function crearInscripcion(req, res) {
-    var eventoId      = req.body.eventoId;
-    var atletaId      = req.body.atletaId;
-    var convocatoriaId = req.body.convocatoriaId || req.body.datosAtleta && req.body.datosAtleta.convocatoriaId;
-
-    if (!eventoId || !atletaId) return res.status(400).json({ message: 'Evento y atleta son requeridos' });
-
-    Promise.all([
-        pool.query('SELECT e.*, e.fecha_cierre FROM eventos e WHERE e.id = $1', [eventoId]),
-        pool.query(`SELECT u.*, g.nombre AS sexo FROM usuarios u LEFT JOIN generos g ON u.genero_id = g.id WHERE u.id = $1`, [atletaId])
-    ])
-    .then(function(results) {
-        var evento = results[0].rows[0];
-        var atleta = results[1].rows[0];
-        if (!evento) return Promise.reject({ status: 404, message: 'Evento no encontrado' });
-        if (!atleta) return Promise.reject({ status: 404, message: 'Atleta no encontrado' });
-        if (new Date() > new Date(evento.fecha_cierre)) {
-            return Promise.reject({ status: 400, message: 'La convocatoria ya está cerrada' });
-        }
-        // Verificar duplicado — por convocatoria si se envió, si no por evento
-        var checkQuery = convocatoriaId
-            ? pool.query('SELECT id FROM inscripciones WHERE atleta_id = $1 AND convocatoria_id = $2', [atletaId, convocatoriaId])
-            : pool.query('SELECT i.id FROM inscripciones i JOIN convocatorias c ON i.convocatoria_id = c.id WHERE i.atleta_id = $1 AND c.evento_id = $2', [atletaId, eventoId]);
-
-        return checkQuery.then(function(r) {
-            if (r.rows.length > 0) return Promise.reject({ status: 400, message: 'Ya estás inscrito en este evento' });
-            return pool.query(
-                'INSERT INTO inscripciones (atleta_id, convocatoria_id, fecha_inscripcion, validado) VALUES ($1,$2,NOW(),true) RETURNING id',
-                [atletaId, convocatoriaId || null]
-            );
-        }).then(function(r2) {
-            var hoy = new Date(); var fn = new Date(atleta.fecha_nacimiento);
-            var edad = hoy.getFullYear() - fn.getFullYear();
-            var mes  = hoy.getMonth() - fn.getMonth();
-            var edadReal = (mes < 0 || (mes === 0 && hoy.getDate() < fn.getDate())) ? edad - 1 : edad;
-            res.status(201).json({ message: 'Inscripción exitosa', id: r2.rows[0].id, validaciones: { edad: edadReal, genero: atleta.sexo } });
-        });
-    })
-    .catch(function(err) {
-        if (err.status) return res.status(err.status).json({ message: err.message });
-        res.status(500).json({ message: 'Error al registrar inscripción', error: err.message });
-    });
-}
-
-// GET /api/eventos/inscripciones
-function listarInscripciones(req, res) {
-    var atletaId = req.query.atletaId;
-    var eventoId = req.query.eventoId;
-    var query    = `SELECT i.*, c.evento_id FROM inscripciones i
-                    LEFT JOIN convocatorias c ON i.convocatoria_id = c.id WHERE 1=1`;
-    var params   = [];
-    if (atletaId) { params.push(atletaId); query += ' AND i.atleta_id = $' + params.length; }
-    if (eventoId) { params.push(eventoId); query += ' AND c.evento_id = $' + params.length; }
-
-    pool.query(query, params)
-        .then(function(r) { res.json(r.rows); })
-        .catch(function(err) { res.status(500).json({ message: 'Error al obtener inscripciones', error: err.message }); });
-}
-
-// GET /api/eventos/:eventoId/participantes
-function participantes(req, res) {
-    pool.query('SELECT id FROM eventos WHERE id = $1', [req.params.eventoId])
-        .then(function(r) {
-            if (r.rows.length === 0) return Promise.reject({ status: 404, message: 'Evento no encontrado' });
-            return pool.query(
-                `SELECT i.id, i.atleta_id, i.fecha_inscripcion, i.validado,
-                        u.nombre, u.apellido_paterno, u.apellido_materno,
-                        c.id AS convocatoria_id
-                 FROM inscripciones i
-                 JOIN convocatorias c ON i.convocatoria_id = c.id
-                 JOIN usuarios u ON i.atleta_id = u.id
-                 WHERE c.evento_id = $1
-                 ORDER BY i.fecha_inscripcion ASC`,
-                [req.params.eventoId]
-            );
-        })
-        .then(function(r) { res.json(r.rows); })
-        .catch(function(err) {
-            if (err.status) return res.status(err.status).json({ message: err.message });
-            res.status(500).json({ message: 'Error al obtener participantes', error: err.message });
-        });
-}
-
-// PUT /api/eventos/:id/actualizar-fecha-cierre
-function actualizarFechaCierre(req, res) {
-    var fechaCierre = req.body.fechaCierre;
-    if (!fechaCierre) return res.status(400).json({ message: 'Fecha de cierre es requerida' });
-    pool.query('UPDATE eventos SET fecha_cierre = $1 WHERE id = $2', [new Date(fechaCierre), req.params.id])
-        .then(function(r) {
-            if (r.rowCount === 0) return res.status(404).json({ message: 'Evento no encontrado' });
-            res.json({ message: 'Fecha de cierre actualizada exitosamente' });
-        })
-        .catch(function(err) { res.status(500).json({ message: 'Error al actualizar fecha de cierre', error: err.message }); });
-}
-
-// POST /api/eventos/:eventoId/convocatorias
-function agregarConvocatoria(req, res) {
-    var eventoId = req.params.eventoId;
-    var conv     = req.body;
-
-    if (!conv.disciplina || !conv.categoria || !conv.genero || conv.edadMin === undefined || conv.edadMax === undefined) {
-        return res.status(400).json({ message: 'Disciplina, categoría, género, edadMin y edadMax son requeridos' });
+    if (isNaN(edad) || req.query.edad === undefined) {
+        return res.status(400).json({ message: 'Edad inválida o no proporcionada' });
+    }
+    if (!genero) {
+        return res.status(400).json({ message: 'Género es requerido' });
     }
 
-    pool.query('SELECT id FROM eventos WHERE id = $1', [eventoId])
-        .then(function(r) {
-            if (r.rows.length === 0) return Promise.reject({ status: 404, message: 'Evento no encontrado' });
-            return Promise.all([
-                pool.query('SELECT id FROM disciplinas WHERE LOWER(nombre) = LOWER($1)', [conv.disciplina.trim()])
-                    .then(function(r) {
-                        if (r.rows.length > 0) return r.rows[0].id;
-                        return pool.query('INSERT INTO disciplinas (nombre) VALUES ($1) RETURNING id', [conv.disciplina.trim()])
-                            .then(function(r2) { return r2.rows[0].id; });
-                    }),
-                pool.query('SELECT id FROM categorias WHERE LOWER(nombre) = LOWER($1)', [conv.categoria.trim()])
-                    .then(function(r) {
-                        if (r.rows.length > 0) return r.rows[0].id;
-                        return pool.query('INSERT INTO categorias (nombre, edad_min, edad_max) VALUES ($1,$2,$3) RETURNING id',
-                            [conv.categoria.trim(), parseInt(conv.edadMin), parseInt(conv.edadMax)])
-                            .then(function(r2) { return r2.rows[0].id; });
-                    }),
-                pool.query('SELECT id FROM generos WHERE LOWER(nombre) = LOWER($1)', [conv.genero.trim()])
-                    .then(function(r) { return r.rows.length > 0 ? r.rows[0].id : null; })
-            ]);
+    Evento.obtenerConvocatoriasParaAtleta(edad, genero)
+        .then(function(rows) {
+            //Mapear a la misma estructura que esperaba el frontend
+            var resultado = rows.map(function(r) {
+                return {
+                    _id:            r.id,
+                    titulo:         r.titulo,
+                    fecha:          r.fecha,
+                    hora:           r.hora,
+                    lugar:          r.lugar,
+                    descripcion:    r.descripcion,
+                    disciplina:     r.disciplina,
+                    categoria:      r.categoria,
+                    edadMin:        r.edad_min,
+                    edadMax:        r.edad_max,
+                    genero:         r.genero,
+                    paraPersonas:   r.para_personas,
+                    fechaCierre:    r.fecha_cierre,
+                    estado:         r.estado,
+                    convocatoriaId: r.convocatoria_id
+                };
+            });
+            res.json(resultado);
         })
-        .then(function(ids) {
-            return pool.query(
-                'INSERT INTO convocatorias (evento_id, disciplina_id, categoria_id, genero_id, estado, created_at) VALUES ($1,$2,$3,$4,true,NOW())',
-                [eventoId, ids[0], ids[1], ids[2]]
-            );
-        })
-        .then(function() { return obtenerEventoCompleto(eventoId); })
-        .then(function(evento) { res.json(evento); })
-        .catch(function(err) {
-            if (err.status) return res.status(err.status).json({ message: err.message });
-            res.status(500).json({ message: 'Error al agregar convocatoria', error: err.message });
+        .catch(function(error) {
+            console.error('❌ Error al filtrar convocatorias para atleta:', error);
+            res.status(500).json({ message: 'Error al filtrar convocatorias', error: error.message });
         });
 }
 
-// GET /api/eventos/debug-atleta/:atletaId
+//GET/api/eventos/debug-atleta/:atletaId
 function debugAtleta(req, res) {
-    pool.query(
-        `SELECT u.id, u.nombre, u.curp, u.fecha_nacimiento, g.nombre AS sexo
-         FROM usuarios u LEFT JOIN generos g ON u.genero_id = g.id WHERE u.id = $1`,
-        [req.params.atletaId]
-    ).then(function(r) {
-        if (r.rows.length === 0) return res.status(404).json({ message: 'Atleta no encontrado' });
-        var atleta = r.rows[0];
-        var hoy = new Date(); var fn = new Date(atleta.fecha_nacimiento);
-        var edad = hoy.getFullYear() - fn.getFullYear();
-        var mes  = hoy.getMonth() - fn.getMonth();
-        var edadReal = (mes < 0 || (mes === 0 && hoy.getDate() < fn.getDate())) ? edad - 1 : edad;
-        res.json({ atleta: atleta, calculos: { edadCalculada: edadReal, genero: atleta.sexo } });
-    }).catch(function(err) { res.status(500).json({ message: 'Error en debug atleta', error: err.message }); });
+    var atletaId = req.params.atletaId;
+
+    Evento.obtenerAtletaPorId(atletaId)
+        .then(function(atleta) {
+            if (!atleta) throw { status: 404, message: 'Atleta no encontrado' };
+
+            var edadCalculada = calcularEdad(atleta.fecha_nacimiento);
+
+            res.json({
+                atleta: {
+                    id:              atleta.id,
+                    nombre:          atleta.nombre,
+                    curp:            atleta.curp,
+                    fechaNacimiento: atleta.fecha_nacimiento,
+                    sexo:            atleta.sexo,
+                    rol:             atleta.rol
+                },
+                calculos: {
+                    fechaActual:     new Date(),
+                    fechaNacimiento: atleta.fecha_nacimiento,
+                    edadCalculada:   edadCalculada,
+                    genero:          atleta.sexo ? atleta.sexo.toLowerCase() : null
+                }
+            });
+        })
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ message: error.message });
+            console.error('Error en debug atleta:', error);
+            res.status(500).json({ message: 'Error al obtener datos del atleta', error: error.message });
+        });
+}
+
+//GET/api/eventos/debug-eventos
+function debugEventos(req, res) {
+    Evento.obtenerResumenEventos()
+        .then(function(resumen) {
+            var fechaActual = new Date();
+            res.json({
+                fechaActual:          fechaActual,
+                totalEventos:         resumen.totalEventos,
+                eventosActivos:       resumen.eventosActivos,
+                eventosAbiertos:      resumen.eventosAbiertos,
+                todosEventos: resumen.detalle.map(function(e) {
+                    return {
+                        id:                e.id,
+                        titulo:            e.titulo,
+                        fechaCierre:       e.fecha_cierre,
+                        estado:            e.estado,
+                        fechaCierrePasada: e.fecha_cierre < fechaActual
+                    };
+                })
+            });
+        })
+        .catch(function(error) {
+            console.error('Error en debug eventos:', error);
+            res.status(500).json({ message: 'Error al obtener datos de eventos', error: error.message });
+        });
+}
+
+//PUT/api/eventos/:id/actualizar-fecha-cierre
+function actualizarFechaCierre(req, res) {
+    var id          = req.params.id;
+    var fechaCierre = req.body.fechaCierre;
+
+    if (!fechaCierre) {
+        return res.status(400).json({ message: 'Fecha de cierre es requerida' });
+    }
+
+    var nuevaFecha = new Date(fechaCierre);
+    if (isNaN(nuevaFecha.getTime())) {
+        return res.status(400).json({ message: 'Fecha de cierre inválida' });
+    }
+
+    Evento.actualizarFechaCierre(id, nuevaFecha)
+        .then(function(evento) {
+            if (!evento) return res.status(404).json({ message: 'Evento no encontrado' });
+            res.json({ message: 'Fecha de cierre actualizada exitosamente' });
+        })
+        .catch(function(error) {
+            console.error('Error al actualizar fecha de cierre:', error);
+            res.status(500).json({ message: 'Error al actualizar fecha de cierre', error: error.message });
+        });
+}
+
+//POST/api/eventos/inscripciones─
+function inscribir(req, res) {
+    var eventoId   = req.body.eventoId;
+    var atletaId   = req.body.atletaId;
+
+    if (!eventoId || !atletaId) {
+        return res.status(400).json({ message: 'Evento y atleta son requeridos' });
+    }
+
+    var eventoGuardado;
+    var atletaGuardado;
+
+    Promise.all([
+        Evento.obtenerPorId(eventoId),
+        Evento.obtenerAtletaPorId(atletaId)
+    ])
+    .then(function(resultados) {
+        var evento = resultados[0];
+        var atleta = resultados[1];
+
+        if (!evento) throw { status: 404, message: 'Evento no encontrado' };
+        if (!atleta) throw { status: 404, message: 'Atleta no encontrado' };
+
+        if (new Date() > new Date(evento.fecha_cierre)) {
+            throw { status: 400, message: 'La convocatoria ya está cerrada' };
+        }
+
+        var edadAtleta = calcularEdad(atleta.fecha_nacimiento);
+
+        if (edadAtleta < evento.edad_min || edadAtleta > evento.edad_max) {
+            throw {
+                status: 400,
+                message: 'La edad del atleta (' + edadAtleta + ' años) no cumple con el rango requerido (' + evento.edad_min + '-' + evento.edad_max + ' años)'
+            };
+        }
+
+        var generoAtleta = atleta.sexo ? atleta.sexo.toLowerCase() : '';
+        if (evento.genero !== 'mixto' && evento.genero !== generoAtleta) {
+            throw {
+                status: 400,
+                message: 'El evento es solo para ' + (evento.genero === 'masculino' ? 'hombres' : 'mujeres')
+            };
+        }
+
+        eventoGuardado = evento;
+        atletaGuardado = atleta;
+
+        return Evento.existeInscripcion(eventoId, atletaId);
+    })
+    .then(function(yaInscrito) {
+        if (yaInscrito) throw { status: 400, message: 'Ya estás inscrito en este evento' };
+
+        var edadAtleta = calcularEdad(atletaGuardado.fecha_nacimiento);
+
+        return Evento.crearInscripcion({
+            eventoId:      eventoId,
+            atletaId:      atletaId,
+            nombreCompleto: atletaGuardado.nombre + ' ' + atletaGuardado.apellidopa + ' ' + atletaGuardado.apellidoma,
+            edad:          edadAtleta,
+            genero:        atletaGuardado.sexo
+        });
+    })
+    .then(function(inscripcion) {
+        res.status(201).json({
+            message:     'Inscripción exitosa',
+            inscripcion: inscripcion,
+            validaciones: {
+                edad:      inscripcion.edad,
+                genero:    inscripcion.genero,
+                categoria: eventoGuardado.categoria
+            }
+        });
+    })
+    .catch(function(error) {
+        if (error.status) return res.status(error.status).json({ message: error.message });
+        console.error('❌ Error al registrar inscripción:', error);
+        res.status(500).json({ message: 'Error al registrar inscripción', error: error.message });
+    });
+}
+
+//GET/api/eventos/inscripciones?atletaId=...&eventoId=...
+function obtenerInscripciones(req, res) {
+    Evento.obtenerInscripciones({
+        atletaId: req.query.atletaId || null,
+        eventoId: req.query.eventoId || null
+    })
+    .then(function(inscripciones) { res.json(inscripciones); })
+    .catch(function(error) {
+        res.status(500).json({ message: 'Error al obtener inscripciones', error: error.message });
+    });
+}
+
+//GET/api/eventos/:eventoId/participantes
+function obtenerParticipantes(req, res) {
+    var eventoId = req.params.eventoId;
+
+    Evento.obtenerPorId(eventoId)
+        .then(function(evento) {
+            if (!evento) throw { status: 404, message: 'Evento no encontrado' };
+            return Evento.obtenerParticipantesPorEvento(eventoId);
+        })
+        .then(function(participantes) { res.json(participantes); })
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ message: error.message });
+            console.error('Error al obtener participantes:', error);
+            res.status(500).json({ message: 'Error al obtener participantes', error: error.message });
+        });
 }
 
 module.exports = {
-    crearEvento, listarEventos, convocatoriasParaAtleta,
-    crearInscripcion, listarInscripciones, participantes,
-    actualizarFechaCierre, agregarConvocatoria, debugAtleta
+    crear,
+    agregarConvocatoria,
+    obtenerTodos,
+    convocatoriasParaAtleta,
+    debugAtleta,
+    debugEventos,
+    actualizarFechaCierre,
+    inscribir,
+    obtenerInscripciones,
+    obtenerParticipantes
 };
