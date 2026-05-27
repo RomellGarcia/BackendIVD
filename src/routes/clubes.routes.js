@@ -1,14 +1,15 @@
-var express = require('express');
-var router  = express.Router();
-var ctrl    = require('../controllers/clubes.controller');
+// src/routes/clubes.routes.js
+var express    = require('express');
+var router     = express.Router();
+var controller = require('../controllers/clubes.controller');
 
-router.get('/estadisticas/generales',    ctrl.estadisticas);
-router.get('/',                          ctrl.listarClubes);
-router.post('/',                         ctrl.crearClub);
-router.get('/:id',                       ctrl.obtenerClub);
-router.put('/:id',                       ctrl.actualizarClub);
-router.delete('/:id',                    ctrl.eliminarClub);
-router.post('/:id/atletas',              ctrl.asociarAtletas);
-router.delete('/:id/atletas/:atletaId',  ctrl.desasociarAtleta);
+router.get('/',                          controller.obtenerTodos);
+router.post('/',                         controller.crear);
+router.get('/estadisticas/generales',    controller.obtenerEstadisticas);
+router.get('/:id',                       controller.obtenerPorId);
+router.put('/:id',                       controller.actualizar);
+router.delete('/:id',                    controller.eliminar);
+router.post('/:id/atletas',              controller.asociarAtletas);
+router.delete('/:id/atletas/:atletaId',  controller.desasociarAtleta);
 
 module.exports = router;

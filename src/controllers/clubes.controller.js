@@ -1,233 +1,239 @@
-var pool   = require('../config/db');
-var bcrypt = require('bcrypt');
-var saltRounds = 10;
+// src/controllers/clubes.controller.js
+var Club = require('../models/club.model');
 
-// GET /api/clubes
-function listarClubes(req, res) {
-    pool.query('SELECT id, nombre, direccion, telefono, email, descripcion, estado, fecha_creacion FROM clubes ORDER BY nombre')
-        .then(function(result) { res.json(result.rows); })
-        .catch(function(err) {
-            console.error('❌ Error al obtener clubes:', err);
-            res.status(500).json({ error: 'Error al obtener clubes', details: err.message });
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function validarTelefono(telefono) {
+    var limpio = telefono.replace(/\D/g, '');
+    return limpio.length === 10 ? limpio : null;
+}
+
+// ── Controllers ──────────────────────────────────────────────────────────────
+
+function obtenerTodos(req, res) {
+    Club.obtenerTodos()
+        .then(function(clubes) { res.json(clubes); })
+        .catch(function(error) {
+            console.error('❌ Error al obtener clubes:', error);
+            res.status(500).json({ error: 'Error al obtener clubes', details: error.message });
         });
 }
 
-// POST /api/clubes
-function crearClub(req, res) {
-    var nombre      = req.body.nombre;
-    var direccion   = req.body.direccion;
-    var telefono    = req.body.telefono;
-    var email       = req.body.email || '';
-    var entrenador  = req.body.entrenador || '';
-    var descripcion = req.body.descripcion || '';
-    var estado      = req.body.estado || 'activo';
-    var password    = req.body.password;
+function obtenerPorId(req, res) {
+    var id = req.params.id;
 
-    if (!nombre || !direccion || !telefono || !password) {
-        return res.status(400).json({ error: 'Nombre, dirección, teléfono y contraseña son obligatorios' });
-    }
-
-    var telefonoLimpio = telefono.replace(/\D/g, '');
-    if (telefonoLimpio.length !== 10) {
-        return res.status(400).json({ error: 'El teléfono debe tener exactamente 10 dígitos' });
-    }
-
-    pool.query('SELECT id FROM clubes WHERE nombre = $1', [nombre.trim()])
-        .then(function(result) {
-            if (result.rows.length > 0) return Promise.reject({ status: 400, error: 'Ya existe un club con ese nombre' });
-            if (!email) return null;
-            return pool.query('SELECT id FROM clubes WHERE email = $1', [email.trim()]);
+    Club.obtenerPorId(id)
+        .then(function(club) {
+            if (!club) return res.status(404).json({ error: 'Club no encontrado' });
+            res.json(club);
         })
-        .then(function(result) {
-            if (result && result.rows.length > 0) return Promise.reject({ status: 400, error: 'El email ya está registrado' });
-            return bcrypt.hash(password, saltRounds);
-        })
-        .then(function(hash) {
-            return pool.query(
-                `INSERT INTO clubes (nombre, direccion, telefono, email, descripcion, password, estado, fecha_creacion, fecha_actualizacion)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),NOW()) RETURNING id, nombre, direccion, telefono, email, descripcion, estado`,
-                [nombre.trim(), direccion.trim(), telefonoLimpio, email.trim(), descripcion.trim(), hash, estado]
-            );
-        })
-        .then(function(result) {
-            res.status(201).json(result.rows[0]);
-        })
-        .catch(function(err) {
-            if (err.status) return res.status(err.status).json({ error: err.error });
-            console.error('❌ Error al crear club:', err);
-            res.status(500).json({ error: 'No se pudo crear el club', details: err.message });
+        .catch(function(error) {
+            console.error('❌ Error al obtener club:', error);
+            res.status(500).json({ error: 'Error al obtener club', details: error.message });
         });
 }
 
-// GET /api/clubes/:id
-function obtenerClub(req, res) {
-    pool.query('SELECT id, nombre, direccion, telefono, email, descripcion, estado FROM clubes WHERE id = $1', [req.params.id])
-        .then(function(result) {
-            if (result.rows.length === 0) return res.status(404).json({ error: 'Club no encontrado' });
-            res.json(result.rows[0]);
-        })
-        .catch(function(err) {
-            console.error('❌ Error al obtener club:', err);
-            res.status(500).json({ error: 'Error al obtener club', details: err.message });
-        });
-}
-
-// PUT /api/clubes/:id
-function actualizarClub(req, res) {
+function crear(req, res) {
     var nombre      = req.body.nombre;
     var direccion   = req.body.direccion;
     var telefono    = req.body.telefono;
     var email       = req.body.email;
+    var entrenador  = req.body.entrenador;
+    var descripcion = req.body.descripcion;
+    var estado      = req.body.estado  || 'activo';
+    var password    = req.body.password;
+    var rol         = req.body.rol     || 'club';
+
+    // Validar obligatorios
+    if (!nombre || !direccion || !telefono || !password) {
+        return res.status(400).json({ error: 'Nombre, dirección, teléfono y contraseña son obligatorios' });
+    }
+
+    // Validar teléfono
+    var telefonoLimpio = validarTelefono(telefono);
+    if (!telefonoLimpio) {
+        return res.status(400).json({ error: 'El teléfono debe tener exactamente 10 dígitos' });
+    }
+
+    // Validar nombre único
+    Club.obtenerPorNombre(nombre, null)
+        .then(function(existente) {
+            if (existente) throw { status: 400, message: 'Ya existe un club con ese nombre' };
+
+            // Validar email único si se proporciona
+            if (!email) return null;
+            return Club.obtenerPorEmail(email, null).then(function(emailExistente) {
+                if (emailExistente) throw { status: 400, message: 'El email ya está registrado' };
+            });
+        })
+        .then(function() {
+            return Club.crear({ nombre, direccion, telefono: telefonoLimpio, email, entrenador, descripcion, estado, password, rol });
+        })
+        .then(function(nuevoClub) {
+            res.status(201).json(nuevoClub);
+        })
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            console.error('❌ Error al crear club:', error);
+            res.status(500).json({ error: 'No se pudo crear el club', details: error.message });
+        });
+}
+
+function actualizar(req, res) {
+    var id          = req.params.id;
+    var nombre      = req.body.nombre;
+    var direccion   = req.body.direccion;
+    var telefono    = req.body.telefono;
+    var email       = req.body.email;
+    var entrenador  = req.body.entrenador;
     var descripcion = req.body.descripcion;
     var estado      = req.body.estado;
 
+    // Validar obligatorios
     if (!nombre || !direccion || !telefono) {
         return res.status(400).json({ error: 'Nombre, dirección y teléfono son obligatorios' });
     }
 
-    var telefonoLimpio = telefono.replace(/\D/g, '');
-    if (telefonoLimpio.length !== 10) {
+    // Validar teléfono
+    var telefonoLimpio = validarTelefono(telefono);
+    if (!telefonoLimpio) {
         return res.status(400).json({ error: 'El teléfono debe tener exactamente 10 dígitos' });
     }
 
-    var id = req.params.id;
+    // Verificar que el club existe
+    Club.obtenerPorId(id)
+        .then(function(club) {
+            if (!club) throw { status: 404, message: 'Club no encontrado' };
 
-    pool.query('SELECT id, estado FROM clubes WHERE id = $1', [id])
-        .then(function(result) {
-            if (result.rows.length === 0) return Promise.reject({ status: 404, error: 'Club no encontrado' });
-            var clubActual = result.rows[0];
-            // Verificar nombre duplicado excluyendo el actual
-            return pool.query('SELECT id FROM clubes WHERE nombre = $1 AND id != $2', [nombre.trim(), id])
-                .then(function(r) {
-                    if (r.rows.length > 0) return Promise.reject({ status: 400, error: 'Ya existe otro club con ese nombre' });
-                    if (!email) return clubActual;
-                    return pool.query('SELECT id FROM clubes WHERE email = $1 AND id != $2', [email.trim(), id])
-                        .then(function(r2) {
-                            if (r2.rows.length > 0) return Promise.reject({ status: 400, error: 'El email ya está registrado por otro club' });
-                            return clubActual;
-                        });
+            // Validar nombre único (excepto el actual)
+            return Club.obtenerPorNombre(nombre, id).then(function(duplicado) {
+                if (duplicado) throw { status: 400, message: 'Ya existe otro club con ese nombre' };
+
+                // Validar email único si se proporciona
+                if (!email) return club;
+                return Club.obtenerPorEmail(email, id).then(function(emailDuplicado) {
+                    if (emailDuplicado) throw { status: 400, message: 'El email ya está registrado por otro club' };
+                    return club;
                 });
+            });
         })
         .then(function(clubActual) {
-            return pool.query(
-                `UPDATE clubes SET nombre=$1, direccion=$2, telefono=$3, email=$4, descripcion=$5, estado=$6, fecha_actualizacion=NOW()
-                 WHERE id=$7
-                 RETURNING id, nombre, direccion, telefono, email, descripcion, estado`,
-                [nombre.trim(), direccion.trim(), telefonoLimpio, email ? email.trim() : '', descripcion ? descripcion.trim() : '', estado || clubActual.estado, id]
-            );
+            return Club.actualizar(id, {
+                nombre,
+                direccion,
+                telefono: telefonoLimpio,
+                email,
+                entrenador,
+                descripcion,
+                estado: estado || clubActual.estado
+            });
         })
-        .then(function(result) {
-            res.json(result.rows[0]);
+        .then(function(clubActualizado) {
+            if (!clubActualizado) return res.status(404).json({ error: 'Club no encontrado' });
+            res.json(clubActualizado);
         })
-        .catch(function(err) {
-            if (err.status) return res.status(err.status).json({ error: err.error });
-            console.error('❌ Error al actualizar club:', err);
-            res.status(500).json({ error: 'Error al actualizar club', details: err.message });
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            console.error('❌ Error al actualizar club:', error);
+            res.status(500).json({ error: 'Error al actualizar club', details: error.message });
         });
 }
 
-// DELETE /api/clubes/:id
-function eliminarClub(req, res) {
+function eliminar(req, res) {
     var id = req.params.id;
 
-    pool.query('SELECT id FROM clubes WHERE id = $1', [id])
-        .then(function(result) {
-            if (result.rows.length === 0) return Promise.reject({ status: 404, error: 'Club no encontrado' });
-            return pool.query('SELECT id FROM atletas WHERE club_id = $1 LIMIT 1', [id]);
-        })
-        .then(function(result) {
-            if (result.rows.length > 0) return Promise.reject({ status: 400, error: 'No se puede eliminar el club porque tiene atletas asociados. Primero desasocia todos los atletas.' });
-            return pool.query('DELETE FROM clubes WHERE id = $1', [id]);
+    Club.obtenerPorId(id)
+        .then(function(club) {
+            if (!club) throw { status: 404, message: 'Club no encontrado' };
+
+            // Verificar atletas asociados
+            return Club.contarAtletasPorClub(id).then(function(total) {
+                if (total > 0) {
+                    throw {
+                        status: 400,
+                        message: 'No se puede eliminar el club porque tiene atletas asociados. Primero desasocia todos los atletas.'
+                    };
+                }
+            });
         })
         .then(function() {
+            return Club.eliminar(id);
+        })
+        .then(function(eliminado) {
+            if (!eliminado) return res.status(404).json({ error: 'Club no encontrado' });
             res.json({ message: 'Club eliminado correctamente' });
         })
-        .catch(function(err) {
-            if (err.status) return res.status(err.status).json({ error: err.error });
-            console.error('❌ Error al eliminar club:', err);
-            res.status(500).json({ error: 'Error al eliminar club', details: err.message });
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            console.error('❌ Error al eliminar club:', error);
+            res.status(500).json({ error: 'Error al eliminar club', details: error.message });
         });
 }
 
-// GET /api/clubes/estadisticas/generales
-function estadisticas(req, res) {
-    Promise.all([
-        pool.query('SELECT COUNT(*) FROM clubes'),
-        pool.query("SELECT COUNT(*) FROM clubes WHERE estado = 'activo'"),
-        pool.query("SELECT COUNT(*) FROM clubes WHERE estado = 'inactivo'"),
-        pool.query(
-            `SELECT c.nombre AS nombre_club, COUNT(a.id) AS total_atletas
-             FROM clubes c
-             LEFT JOIN atletas a ON c.id = a.club_id
-             GROUP BY c.id, c.nombre
-             ORDER BY total_atletas DESC`
-        )
-    ])
-    .then(function(results) {
-        res.json({
-            totalClubes:     parseInt(results[0].rows[0].count),
-            clubesActivos:   parseInt(results[1].rows[0].count),
-            clubesInactivos: parseInt(results[2].rows[0].count),
-            atletasPorClub:  results[3].rows
+function obtenerEstadisticas(req, res) {
+    Club.obtenerEstadisticas()
+        .then(function(stats) { res.json(stats); })
+        .catch(function(error) {
+            console.error('❌ Error al obtener estadísticas:', error);
+            res.status(500).json({ error: 'Error al obtener estadísticas', details: error.message });
         });
-    })
-    .catch(function(err) {
-        console.error('❌ Error al obtener estadísticas:', err);
-        res.status(500).json({ error: 'Error al obtener estadísticas', details: err.message });
-    });
 }
 
-// POST /api/clubes/:id/atletas — Asociar múltiples atletas a un club
 function asociarAtletas(req, res) {
+    var id        = req.params.id;
     var atletaIds = req.body.atletaIds;
-    var clubId    = req.params.id;
 
-    if (!atletaIds || !Array.isArray(atletaIds)) {
+    if (!atletaIds || !Array.isArray(atletaIds) || atletaIds.length === 0) {
         return res.status(400).json({ error: 'Se requiere un array de IDs de atletas' });
     }
 
-    pool.query('SELECT id FROM clubes WHERE id = $1', [clubId])
-        .then(function(result) {
-            if (result.rows.length === 0) return Promise.reject({ status: 404, error: 'Club no encontrado' });
-            // Actualizar todos los atletas de la lista
-            var promesas = atletaIds.map(function(atletaId) {
-                return pool.query('UPDATE atletas SET club_id = $1 WHERE usuario_id = $2', [clubId, atletaId]);
+    Club.obtenerPorId(id)
+        .then(function(club) {
+            if (!club) throw { status: 404, message: 'Club no encontrado' };
+            return Club.asociarAtletas(id, atletaIds);
+        })
+        .then(function(modificados) {
+            res.json({
+                message: modificados + ' atletas asociados correctamente al club',
+                atletasAsociados: modificados
             });
-            return Promise.all(promesas);
         })
-        .then(function(results) {
-            var modificados = results.reduce(function(acc, r) { return acc + r.rowCount; }, 0);
-            res.json({ message: modificados + ' atletas asociados correctamente al club', atletasAsociados: modificados });
-        })
-        .catch(function(err) {
-            if (err.status) return res.status(err.status).json({ error: err.error });
-            console.error('❌ Error al asociar atletas:', err);
-            res.status(500).json({ error: 'Error al asociar atletas', details: err.message });
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            console.error('❌ Error al asociar atletas:', error);
+            res.status(500).json({ error: 'Error al asociar atletas', details: error.message });
         });
 }
 
-// DELETE /api/clubes/:id/atletas/:atletaId — Desasociar un atleta del club
 function desasociarAtleta(req, res) {
-    var clubId   = req.params.id;
+    var id       = req.params.id;
     var atletaId = req.params.atletaId;
 
-    pool.query('SELECT id FROM clubes WHERE id = $1', [clubId])
-        .then(function(result) {
-            if (result.rows.length === 0) return Promise.reject({ status: 404, error: 'Club no encontrado' });
-            return pool.query('SELECT id FROM atletas WHERE usuario_id = $1 AND club_id = $2', [atletaId, clubId]);
+    Club.obtenerPorId(id)
+        .then(function(club) {
+            if (!club) throw { status: 404, message: 'Club no encontrado' };
+            return Club.desasociarAtleta(atletaId, id);
         })
-        .then(function(result) {
-            if (result.rows.length === 0) return Promise.reject({ status: 404, error: 'Atleta no encontrado o no está asociado a este club' });
-            return pool.query('UPDATE atletas SET club_id = NULL WHERE usuario_id = $1', [atletaId]);
-        })
-        .then(function() {
+        .then(function(resultado) {
+            if (!resultado) {
+                return res.status(404).json({ error: 'Atleta no encontrado o no está asociado a este club' });
+            }
             res.json({ message: 'Atleta desasociado correctamente del club' });
         })
-        .catch(function(err) {
-            if (err.status) return res.status(err.status).json({ error: err.error });
-            console.error('❌ Error al desasociar atleta:', err);
-            res.status(500).json({ error: 'Error al desasociar atleta', details: err.message });
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            console.error('❌ Error al desasociar atleta:', error);
+            res.status(500).json({ error: 'Error al desasociar atleta', details: error.message });
         });
 }
 
-module.exports = { listarClubes, crearClub, obtenerClub, actualizarClub, eliminarClub, estadisticas, asociarAtletas, desasociarAtleta };
+module.exports = {
+    obtenerTodos,
+    obtenerPorId,
+    crear,
+    actualizar,
+    eliminar,
+    obtenerEstadisticas,
+    asociarAtletas,
+    desasociarAtleta
+};
