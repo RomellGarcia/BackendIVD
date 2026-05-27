@@ -1,5 +1,5 @@
 //src/controllers/sesiones.controller.js
-var Sesion = require('../models/sesion.model');
+var Sesion = require('../model/sesion.model');
 
 //POST/api/sesiones/crear
 function crear(req, res) {

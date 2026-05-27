@@ -1,5 +1,5 @@
 //src/controllers/resultados.controller.js
-var Resultado = require('../models/resultado.model');
+var Resultado = require('../model/resultado.model');
 
 //POST /api/resultados
 function crear(req, res) {
