@@ -33,7 +33,6 @@ function camposEntrenador(user) {
 }
 
 //Buscar usuario según rol 
-
 function buscarUsuario(rol, curp, correo) {
     if (rol === 'atleta') {
         return Login.buscarAtletaPorCurp(curp);
