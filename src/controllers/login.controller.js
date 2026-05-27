@@ -1,147 +1,131 @@
-var pool   = require('../config/db');
+//src/controllers/login.controller.js
 var bcrypt = require('bcrypt');
+var Login  = require('../model/login.model');
 
-// POST /api/login
-// Soporta: atleta (por CURP), club (por email), entrenador/administrador (por correo o CURP)
-function login(req, res) {
+//Helpers para construir la respuesta según rol 
+function camposAtleta(user) {
+    return {
+        fechaNacimiento: user.fecha_nacimiento,
+        sexo:            user.sexo,
+        apellidopa:      user.apellidopa,
+        apellidoma:      user.apellidoma,
+        clubId:          user.club_id
+    };
+}
+
+function camposClub(user) {
+    return {
+        direccion:   user.direccion,
+        entrenador:  user.entrenador,
+        descripcion: user.descripcion,
+        estado:      user.estado
+    };
+}
+
+function camposEntrenador(user) {
+    return {
+        certificaciones: user.certificaciones,
+        especialidades:  user.especialidades,
+        añosExperiencia: user.anos_experiencia,
+        clubId:          user.club_id,
+        estado:          user.estado
+    };
+}
+
+//Buscar usuario según rol 
+
+function buscarUsuario(rol, curp, correo) {
+    if (rol === 'atleta') {
+        return Login.buscarAtletaPorCurp(curp);
+    }
+
+    if (rol === 'club') {
+        return Login.buscarClubPorEmail(correo);
+    }
+
+    if (rol === 'entrenador' || rol === 'administrador') {
+        //Intenta por gmail primero, luego por curp como fallback
+        return Login.buscarRegistroPorGmail(correo, rol)
+            .then(function(user) {
+                if (user) return user;
+                if (!curp) return null;
+                return Login.buscarRegistroPorCurp(curp, rol);
+            });
+    }
+
+    return Promise.resolve(null);
+}
+
+//POST/api/login
+
+function iniciarSesion(req, res) {
     var rol      = req.body.rol;
     var curp     = req.body.curp;
     var correo   = req.body.correo;
     var password = req.body.password;
 
+    console.log('Datos recibidos:', { rol, curp, correo, password });
+
+    //Validar campos requeridos segun rol
+    var rolesValidos = ['atleta', 'club', 'entrenador', 'administrador'];
+
     if (!rol || !password) {
         return res.status(400).json({ error: 'Faltan campos requeridos.' });
     }
+
+    if (!rolesValidos.includes(rol)) {
+        return res.status(400).json({ error: 'Rol no válido.' });
+    }
+
     if (rol === 'atleta' && !curp) {
         return res.status(400).json({ error: 'Faltan campos requeridos.' });
     }
+
     if ((rol === 'club' || rol === 'entrenador' || rol === 'administrador') && !correo) {
         return res.status(400).json({ error: 'Faltan campos requeridos.' });
     }
 
-    var promesaUsuario;
-
-    if (rol === 'atleta') {
-        promesaUsuario = pool.query(
-            `SELECT u.*, g.nombre AS sexo_nombre, r.nombre AS rol_nombre, a.club_id
-             FROM usuarios u
-             LEFT JOIN generos g ON u.genero_id = g.id
-             LEFT JOIN roles r ON u.rol_id = r.id
-             LEFT JOIN atletas a ON u.id = a.usuario_id
-             WHERE u.curp = $1`,
-            [curp]
-        ).then(function(result) { return result.rows[0] || null; });
-
-    } else if (rol === 'club') {
-        promesaUsuario = pool.query(
-            'SELECT * FROM clubes WHERE email = $1',
-            [correo]
-        ).then(function(result) { return result.rows[0] || null; });
-
-    } else if (rol === 'entrenador') {
-        promesaUsuario = pool.query(
-            `SELECT u.*, g.nombre AS sexo_nombre, r.nombre AS rol_nombre,
-                    e.id AS entrenador_id, e.club_id, e.anos_experiencia, e.estado AS estado_entrenador,
-                    json_agg(DISTINCT cert.nombre) FILTER (WHERE cert.nombre IS NOT NULL) AS certificaciones,
-                    json_agg(DISTINCT esp.nombre)  FILTER (WHERE esp.nombre IS NOT NULL)  AS especialidades
-             FROM usuarios u
-             LEFT JOIN generos g ON u.genero_id = g.id
-             LEFT JOIN roles r ON u.rol_id = r.id
-             LEFT JOIN entrenadores e ON u.id = e.usuario_id
-             LEFT JOIN certificaciones cert ON e.id = cert.entrenador_id
-             LEFT JOIN especialidades esp ON e.id = esp.entrenador_id
-             WHERE u.email = $1 AND LOWER(r.nombre) = 'entrenador'
-             GROUP BY u.id, g.nombre, r.nombre, e.id, e.club_id, e.anos_experiencia, e.estado`,
-            [correo]
-        ).then(function(result) {
-            if (result.rows[0]) return result.rows[0];
-            // Intentar por CURP si no encontró por correo
-            if (!curp) return null;
-            return pool.query(
-                `SELECT u.*, g.nombre AS sexo_nombre, r.nombre AS rol_nombre,
-                        e.id AS entrenador_id, e.club_id, e.anos_experiencia, e.estado AS estado_entrenador
-                 FROM usuarios u
-                 LEFT JOIN generos g ON u.genero_id = g.id
-                 LEFT JOIN roles r ON u.rol_id = r.id
-                 LEFT JOIN entrenadores e ON u.id = e.usuario_id
-                 WHERE u.curp = $1 AND LOWER(r.nombre) = 'entrenador'`,
-                [curp]
-            ).then(function(r2) { return r2.rows[0] || null; });
-        });
-
-    } else if (rol === 'administrador') {
-        promesaUsuario = pool.query(
-            `SELECT u.*, r.nombre AS rol_nombre
-             FROM usuarios u
-             LEFT JOIN roles r ON u.rol_id = r.id
-             WHERE u.email = $1 AND LOWER(r.nombre) = 'administrador'`,
-            [correo]
-        ).then(function(result) {
-            if (result.rows[0]) return result.rows[0];
-            if (!curp) return null;
-            return pool.query(
-                `SELECT u.*, r.nombre AS rol_nombre FROM usuarios u
-                 LEFT JOIN roles r ON u.rol_id = r.id
-                 WHERE u.curp = $1 AND LOWER(r.nombre) = 'administrador'`,
-                [curp]
-            ).then(function(r2) { return r2.rows[0] || null; });
-        });
-
-    } else {
-        return res.status(400).json({ error: 'Rol no válido.' });
-    }
-
-    promesaUsuario
+    buscarUsuario(rol, curp, correo)
         .then(function(user) {
-            if (!user) return Promise.reject({ status: 404, error: 'Usuario no encontrado' });
-            return bcrypt.compare(password, user.password).then(function(match) {
-                if (!match) return Promise.reject({ status: 401, error: 'Usuario o contraseña incorrecta' });
-                return user;
-            });
+            if (!user) {
+                throw { status: 404, message: 'Usuario no encontrado' };
+            }
+
+            return bcrypt.compare(password, user.password)
+                .then(function(isMatch) {
+                    if (!isMatch) {
+                        throw { status: 401, message: 'Usuario o contraseña incorrecta' };
+                    }
+                    return user;
+                });
         })
         .then(function(user) {
-            // Construir respuesta según rol (igual que el original)
-            var respuesta = {
-                message: 'Inicio de sesión exitoso',
-                tipo: rol,
-                user: {
-                    id: user.id ? user.id.toString() : user._id,
-                    nombre: user.nombre,
-                    curp: user.curp,
-                    gmail: user.email,
-                    telefono: user.telefono,
-                    rol: rol
-                }
+            //Campos base comunes a todos los roles
+            var userData = {
+                id:       user.id,
+                nombre:   user.nombre,
+                curp:     user.curp,
+                gmail:    user.gmail || user.email,
+                telefono: user.telefono,
+                rol:      user.rol
             };
 
-            if (rol === 'atleta') {
-                respuesta.user.fechaNacimiento = user.fecha_nacimiento;
-                respuesta.user.sexo           = user.sexo_nombre;
-                respuesta.user.apellidopa     = user.apellido_paterno;
-                respuesta.user.apellidoma     = user.apellido_materno;
-                respuesta.user.clubId         = user.club_id;
-            }
+            //Campos extra segun rol
+            if (rol === 'atleta')      Object.assign(userData, camposAtleta(user));
+            if (rol === 'club')        Object.assign(userData, camposClub(user));
+            if (rol === 'entrenador')  Object.assign(userData, camposEntrenador(user));
 
-            if (rol === 'club') {
-                respuesta.user.direccion   = user.direccion;
-                respuesta.user.descripcion = user.descripcion;
-                respuesta.user.estado      = user.estado;
-            }
-
-            if (rol === 'entrenador') {
-                respuesta.user.certificaciones  = user.certificaciones || [];
-                respuesta.user.especialidades   = user.especialidades  || [];
-                respuesta.user.añosExperiencia  = user.anos_experiencia;
-                respuesta.user.clubId           = user.club_id;
-                respuesta.user.estado           = user.estado_entrenador;
-            }
-
-            res.status(200).json(respuesta);
+            res.status(200).json({
+                message: 'Inicio de sesión exitoso',
+                tipo:    rol,
+                user:    userData
+            });
         })
-        .catch(function(err) {
-            if (err.status) return res.status(err.status).json({ error: err.error });
-            res.status(500).json({ error: 'Error en el servidor.', details: err.message });
+        .catch(function(error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            console.error('Error en login:', error);
+            res.status(500).json({ error: 'Error en el servidor. Intenta de nuevo.', details: error.message });
         });
 }
 
-module.exports = { login };
+module.exports = { iniciarSesion };
