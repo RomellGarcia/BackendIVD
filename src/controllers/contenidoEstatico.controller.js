@@ -1,10 +1,9 @@
-// controllers/contenidoEstatico.controller.js
-// Maneja: mision, vision, terminos, politicas
-// Patrón: un solo documento por tipo (deleteMany + insertOne al crear, upsert al actualizar)
+//controllers/contenidoEstatico.controller.js
+//Maneja: mision, vision, terminos, politicas /// Patrón: un solo documento por tipo (deleteMany + insertOne al crear, upsert al actualizar)
 
 var pool = require('../config/db');
 
-// GET /api/:tipo — obtener todos los registros del tipo
+//GET /api/:tipo — obtener todos los registros del tipo
 function listar(req, res) {
     var tipo = req.baseUrl.replace('/api/', '');
     pool.query(
@@ -18,7 +17,7 @@ function listar(req, res) {
     });
 }
 
-// GET /api/:tipo/:id — obtener por id
+//GET/api/:tipo/:id obtener por id
 function obtenerPorId(req, res) {
     var tipo = req.baseUrl.replace('/api/', '');
     pool.query(
@@ -34,7 +33,7 @@ function obtenerPorId(req, res) {
     });
 }
 
-// POST /api/:tipo — crear (elimina todos los anteriores primero, igual que el original)
+//POST /api/:tipo — crear (elimina todos los anteriores primero, igual que el original)
 function crear(req, res) {
     var tipo     = req.baseUrl.replace('/api/', '');
     var titulo   = req.body.titulo;
@@ -47,7 +46,7 @@ function crear(req, res) {
         return res.status(400).json({ message: 'El título no debe exceder 255 caracteres' });
     }
 
-    // Eliminar todos los existentes del tipo y luego insertar (comportamiento original)
+    //Eliminar todos los existentes del tipo y luego insertar (comportamiento original)
     pool.query('DELETE FROM contenido_estatico WHERE tipo = $1', [tipo])
         .then(function() {
             return pool.query(
@@ -59,12 +58,12 @@ function crear(req, res) {
             res.status(201).json(r.rows[0]);
         })
         .catch(function(err) {
-            console.error('❌ Error al crear ' + tipo + ':', err);
+            console.error('Error al crear ' + tipo + ':', err);
             res.status(500).json({ message: 'Error al crear ' + tipo, error: err.message });
         });
 }
 
-// PUT /api/:tipo/:id — actualizar por id
+//PUT/api/:tipo/:id — actualizar por id
 function actualizar(req, res) {
     var tipo     = req.baseUrl.replace('/api/', '');
     var titulo   = req.body.titulo;
@@ -92,7 +91,7 @@ function actualizar(req, res) {
         });
 }
 
-// DELETE /api/:tipo/:id — eliminar por id
+//DELETE/api/:tipo/:id — eliminar por id
 function eliminar(req, res) {
     var tipo = req.baseUrl.replace('/api/', '');
 
