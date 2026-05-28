@@ -6,6 +6,7 @@ var Login  = require('../models/login.model');
 
 function camposAtleta(user) {
     return {
+         atletaId:        user.atleta_id,
         fechaNacimiento: user.fecha_nacimiento,
         sexo:            user.genero_nombre,
         apellidopa:      user.apellido_paterno,
