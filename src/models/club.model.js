@@ -1,105 +1,77 @@
-//src/models/club.model.js
-var pool = require('../config/db');
+// src/models/club.model.js
+// clubes NO tiene password en el schema real (backup.sql)
+// La autenticación de clubes es por email en la tabla clubes
+var pool   = require('../config/db');
 var bcrypt = require('bcrypt');
-
 var SALT_ROUNDS = 10;
 
 function obtenerTodos() {
     return pool.query('SELECT * FROM clubes ORDER BY fecha_creacion DESC')
-        .then(function(result) { return result.rows; });
+        .then(function(r) { return r.rows; });
 }
 
 function obtenerPorId(id) {
     return pool.query('SELECT * FROM clubes WHERE id = $1', [id])
-        .then(function(result) { return result.rows[0] || null; });
+        .then(function(r) { return r.rows[0] || null; });
 }
 
 function obtenerPorNombre(nombre, excluirId) {
-    if (excluirId) {
-        return pool.query(
-            'SELECT id FROM clubes WHERE LOWER(nombre) = LOWER($1) AND id != $2',
-            [nombre.trim(), excluirId]
-        ).then(function(result) { return result.rows[0] || null; });
-    }
-    return pool.query(
-        'SELECT id FROM clubes WHERE LOWER(nombre) = LOWER($1)',
-        [nombre.trim()]
-    ).then(function(result) { return result.rows[0] || null; });
+    var q      = 'SELECT id FROM clubes WHERE LOWER(nombre) = LOWER($1)';
+    var params = [nombre.trim()];
+    if (excluirId) { q += ' AND id != $2'; params.push(excluirId); }
+    return pool.query(q, params).then(function(r) { return r.rows[0] || null; });
 }
 
 function obtenerPorEmail(email, excluirId) {
-    if (excluirId) {
-        return pool.query(
-            'SELECT id FROM clubes WHERE LOWER(email) = LOWER($1) AND id != $2',
-            [email.trim(), excluirId]
-        ).then(function(result) { return result.rows[0] || null; });
-    }
-    return pool.query(
-        'SELECT id FROM clubes WHERE LOWER(email) = LOWER($1)',
-        [email.trim()]
-    ).then(function(result) { return result.rows[0] || null; });
+    var q      = 'SELECT id FROM clubes WHERE LOWER(email) = LOWER($1)';
+    var params = [email.trim()];
+    if (excluirId) { q += ' AND id != $2'; params.push(excluirId); }
+    return pool.query(q, params).then(function(r) { return r.rows[0] || null; });
 }
 
 function crear(datos) {
-    return bcrypt.hash(datos.password, SALT_ROUNDS)
-        .then(function(hashedPassword) {
-            return pool.query(
-                `INSERT INTO clubes
-                    (nombre, direccion, telefono, email, entrenador, descripcion, estado, rol, password, fecha_creacion, fecha_actualizacion)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())
-                RETURNING *`,
-                [
-                    datos.nombre.trim(),
-                    datos.direccion.trim(),
-                    datos.telefono.trim(),
-                    datos.email    ? datos.email.trim()      : '',
-                    datos.entrenador ? datos.entrenador.trim() : '',
-                    datos.descripcion ? datos.descripcion.trim() : '',
-                    datos.estado || 'activo',
-                    datos.rol    || 'club',
-                    hashedPassword
-                ]
-            );
-        })
-        .then(function(result) { return result.rows[0]; });
+    // En el schema real clubes NO tiene password — se crea sin contraseña
+    // Si tu sistema requiere password para clubes, agregar la columna al schema
+    return pool.query(
+        `INSERT INTO clubes (nombre, direccion, telefono, email, descripcion, estado, fecha_creacion, fecha_actualizacion)
+         VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW()) RETURNING *`,
+        [
+            datos.nombre.trim(),
+            datos.direccion ? datos.direccion.trim() : '',
+            datos.telefono  ? datos.telefono.trim()  : '',
+            datos.email     ? datos.email.trim()     : '',
+            datos.descripcion ? datos.descripcion.trim() : '',
+            datos.estado || 'activo'
+        ]
+    ).then(function(r) { return r.rows[0]; });
 }
 
 function actualizar(id, datos) {
     return pool.query(
         `UPDATE clubes SET
-            nombre = $1,
-            direccion = $2,
-            telefono = $3,
-            email = $4,
-            entrenador = $5,
-            descripcion = $6,
-            estado = $7,
-            fecha_actualizacion = NOW()
-        WHERE id = $8
-        RETURNING *`,
+            nombre = $1, direccion = $2, telefono = $3, email = $4,
+            descripcion = $5, estado = $6, fecha_actualizacion = NOW()
+         WHERE id = $7 RETURNING *`,
         [
             datos.nombre.trim(),
-            datos.direccion.trim(),
-            datos.telefono.trim(),
+            datos.direccion   ? datos.direccion.trim()   : '',
+            datos.telefono    ? datos.telefono.trim()    : '',
             datos.email       ? datos.email.trim()       : '',
-            datos.entrenador  ? datos.entrenador.trim()  : '',
             datos.descripcion ? datos.descripcion.trim() : '',
             datos.estado,
             id
         ]
-    ).then(function(result) { return result.rows[0] || null; });
+    ).then(function(r) { return r.rows[0] || null; });
 }
 
 function eliminar(id) {
     return pool.query('DELETE FROM clubes WHERE id = $1 RETURNING id', [id])
-        .then(function(result) { return result.rows[0] || null; });
+        .then(function(r) { return r.rows[0] || null; });
 }
 
 function contarAtletasPorClub(clubId) {
-    return pool.query(
-        'SELECT COUNT(*) AS total FROM registros WHERE club_id = $1 AND rol = $2',
-        [clubId, 'atleta']
-    ).then(function(result) { return parseInt(result.rows[0].total, 10); });
+    return pool.query('SELECT COUNT(*) AS total FROM atletas WHERE club_id = $1', [clubId])
+        .then(function(r) { return parseInt(r.rows[0].total, 10); });
 }
 
 function obtenerEstadisticas() {
@@ -108,46 +80,38 @@ function obtenerEstadisticas() {
         pool.query("SELECT COUNT(*) AS total FROM clubes WHERE estado = 'activo'"),
         pool.query("SELECT COUNT(*) AS total FROM clubes WHERE estado = 'inactivo'"),
         pool.query(
-            `SELECT c.id, c.nombre, COUNT(r.id) AS total_atletas
+            `SELECT c.id, c.nombre, COUNT(a.id) AS total_atletas
              FROM clubes c
-             LEFT JOIN registros r ON r.club_id = c.id AND r.rol = 'atleta'
+             LEFT JOIN atletas a ON a.club_id = c.id
              GROUP BY c.id, c.nombre
              ORDER BY total_atletas DESC`
         )
-    ]).then(function(results) {
+    ]).then(function(res) {
         return {
-            totalClubes:     parseInt(results[0].rows[0].total, 10),
-            clubesActivos:   parseInt(results[1].rows[0].total, 10),
-            clubesInactivos: parseInt(results[2].rows[0].total, 10),
-            atletasPorClub:  results[3].rows
+            totalClubes:     parseInt(res[0].rows[0].total, 10),
+            clubesActivos:   parseInt(res[1].rows[0].total, 10),
+            clubesInactivos: parseInt(res[2].rows[0].total, 10),
+            atletasPorClub:  res[3].rows
         };
     });
 }
 
 function asociarAtletas(clubId, atletaIds) {
-    return pool.query(
-        'UPDATE registros SET club_id = $1 WHERE id = ANY($2::int[]) AND rol = $3',
-        [clubId, atletaIds, 'atleta']
-    ).then(function(result) { return result.rowCount; });
+    var promesas = atletaIds.map(function(atletaId) {
+        return pool.query('UPDATE atletas SET club_id = $1 WHERE id = $2', [clubId, atletaId]);
+    });
+    return Promise.all(promesas).then(function() { return atletaIds.length; });
 }
 
 function desasociarAtleta(atletaId, clubId) {
     return pool.query(
-        'UPDATE registros SET club_id = NULL WHERE id = $1 AND club_id = $2 AND rol = $3 RETURNING id',
-        [atletaId, clubId, 'atleta']
-    ).then(function(result) { return result.rows[0] || null; });
+        'UPDATE atletas SET club_id = NULL WHERE id = $1 AND club_id = $2 RETURNING id',
+        [atletaId, clubId]
+    ).then(function(r) { return r.rows[0] || null; });
 }
 
 module.exports = {
-    obtenerTodos,
-    obtenerPorId,
-    obtenerPorNombre,
-    obtenerPorEmail,
-    crear,
-    actualizar,
-    eliminar,
-    contarAtletasPorClub,
-    obtenerEstadisticas,
-    asociarAtletas,
-    desasociarAtleta
+    obtenerTodos, obtenerPorId, obtenerPorNombre, obtenerPorEmail,
+    crear, actualizar, eliminar, contarAtletasPorClub,
+    obtenerEstadisticas, asociarAtletas, desasociarAtleta
 };

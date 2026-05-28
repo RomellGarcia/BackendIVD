@@ -1,150 +1,148 @@
-//src/models/evento.model.js
+// src/models/evento.model.js
+// convocatorias ahora usan FKs: disciplina_id, categoria_id, genero_id
+// inscripciones usan atleta_id (FK a atletas.id, no a usuarios.id)
 var pool = require('../config/db');
 
-//Eventos
+// ── Helpers para resolver FKs de catálogos ────────────────────────────────────
+
+function obtenerDisciplinaId(nombre) {
+    if (!nombre) return Promise.resolve(null);
+    return pool.query('SELECT id FROM disciplinas WHERE LOWER(nombre) = LOWER($1)', [nombre])
+        .then(function(r) { return r.rows[0] ? r.rows[0].id : null; });
+}
+
+function obtenerCategoriaId(nombre) {
+    if (!nombre) return Promise.resolve(null);
+    return pool.query('SELECT id FROM categorias WHERE LOWER(nombre) = LOWER($1)', [nombre])
+        .then(function(r) { return r.rows[0] ? r.rows[0].id : null; });
+}
+
+function obtenerGeneroId(nombre) {
+    if (!nombre) return Promise.resolve(null);
+    return pool.query('SELECT id FROM generos WHERE LOWER(nombre) = LOWER($1)', [nombre])
+        .then(function(r) { return r.rows[0] ? r.rows[0].id : null; });
+}
+
+// ── Eventos ───────────────────────────────────────────────────────────────────
 
 function obtenerTodos(limite) {
-    var query = 'SELECT * FROM eventos WHERE estado != false ORDER BY created_at DESC';
-    var params = [];
-
-    if (limite) {
-        query += ' LIMIT $1';
-        params.push(limite);
-    }
-
-    return pool.query(query, params)
-        .then(function(result) { return result.rows; });
+    var q = 'SELECT * FROM eventos WHERE estado = true ORDER BY created_at DESC';
+    return pool.query(limite ? q + ' LIMIT $1' : q, limite ? [limite] : [])
+        .then(function(r) { return r.rows; });
 }
 
 function obtenerPorId(id) {
     return pool.query('SELECT * FROM eventos WHERE id = $1', [id])
-        .then(function(result) { return result.rows[0] || null; });
+        .then(function(r) { return r.rows[0] || null; });
 }
 
 function crearEvento(datos) {
     return pool.query(
-        `INSERT INTO eventos
-            (titulo, fecha, hora, lugar, descripcion, fecha_cierre, estado, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, true, NOW(), NOW())
-         RETURNING *`,
-        [
-            datos.titulo,
-            datos.fecha,
-            datos.hora,
-            datos.lugar,
-            datos.descripcion || '',
-            datos.fechaCierre
-        ]
-    ).then(function(result) { return result.rows[0]; });
+        `INSERT INTO eventos (titulo, fecha, hora, lugar, descripcion, fecha_cierre, estado, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,true,NOW()) RETURNING *`,
+        [datos.titulo, datos.fecha, datos.hora, datos.lugar, datos.descripcion || '', datos.fechaCierre]
+    ).then(function(r) { return r.rows[0]; });
 }
 
 function actualizarFechaCierre(id, fechaCierre) {
     return pool.query(
-        'UPDATE eventos SET fecha_cierre = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+        'UPDATE eventos SET fecha_cierre = $1 WHERE id = $2 RETURNING *',
         [fechaCierre, id]
-    ).then(function(result) { return result.rows[0] || null; });
+    ).then(function(r) { return r.rows[0] || null; });
 }
 
-//Convocatorias
+// ── Convocatorias ─────────────────────────────────────────────────────────────
+
 function crearConvocatoria(eventoId, conv) {
-    return pool.query(
-        `INSERT INTO convocatorias
-            (evento_id, disciplina, categoria, genero, para_personas, edad_min, edad_max, estado, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW())
-         RETURNING *`,
-        [
-            eventoId,
-            conv.disciplina.trim(),
-            conv.categoria.trim(),
-            conv.genero.trim(),
-            (conv.paraPersonas || conv.genero).trim(),
-            parseInt(conv.edadMin, 10),
-            parseInt(conv.edadMax, 10)
-        ]
-    ).then(function(result) { return result.rows[0]; });
+    return Promise.all([
+        obtenerDisciplinaId(conv.disciplina),
+        obtenerCategoriaId(conv.categoria),
+        obtenerGeneroId(conv.genero)
+    ]).then(function(ids) {
+        return pool.query(
+            `INSERT INTO convocatorias (evento_id, disciplina_id, categoria_id, genero_id, estado, created_at)
+             VALUES ($1,$2,$3,$4,true,NOW()) RETURNING *`,
+            [eventoId, ids[0], ids[1], ids[2]]
+        );
+    }).then(function(r) { return r.rows[0]; });
 }
 
 function obtenerConvocatoriasPorEvento(eventoId) {
     return pool.query(
-        'SELECT * FROM convocatorias WHERE evento_id = $1 AND estado = true',
+        `SELECT c.*, d.nombre AS disciplina, cat.nombre AS categoria, g.nombre AS genero,
+                cat.edad_min, cat.edad_max
+         FROM convocatorias c
+         LEFT JOIN disciplinas d ON d.id = c.disciplina_id
+         LEFT JOIN categorias cat ON cat.id = c.categoria_id
+         LEFT JOIN generos g ON g.id = c.genero_id
+         WHERE c.evento_id = $1 AND c.estado = true`,
         [eventoId]
-    ).then(function(result) { return result.rows; });
+    ).then(function(r) { return r.rows; });
 }
 
 function obtenerEventoConConvocatorias(eventoId) {
-    return Promise.all([
-        obtenerPorId(eventoId),
-        obtenerConvocatoriasPorEvento(eventoId)
-    ]).then(function(resultados) {
-        var evento = resultados[0];
-        if (!evento) return null;
-        evento.convocatorias = resultados[1];
-        return evento;
-    });
+    return Promise.all([obtenerPorId(eventoId), obtenerConvocatoriasPorEvento(eventoId)])
+        .then(function(res) {
+            var evento = res[0];
+            if (!evento) return null;
+            evento.convocatorias = res[1];
+            return evento;
+        });
 }
 
-//Convocatorias abiertas que aplican para la edad y género de un atleta
 function obtenerConvocatoriasParaAtleta(edad, genero) {
     return pool.query(
-        `SELECT
-            e.id,
-            e.titulo,
-            e.fecha,
-            e.hora,
-            e.lugar,
-            e.descripcion,
-            e.fecha_cierre,
-            e.estado,
-            c.id           AS convocatoria_id,
-            c.disciplina,
-            c.categoria,
-            c.edad_min,
-            c.edad_max,
-            c.genero,
-            c.para_personas
+        `SELECT e.id, e.titulo, e.fecha, e.hora, e.lugar, e.descripcion, e.fecha_cierre, e.estado,
+                c.id AS convocatoria_id,
+                d.nombre AS disciplina,
+                cat.nombre AS categoria,
+                cat.edad_min, cat.edad_max,
+                g.nombre AS genero
          FROM eventos e
          INNER JOIN convocatorias c ON c.evento_id = e.id
+         LEFT JOIN disciplinas d ON d.id = c.disciplina_id
+         LEFT JOIN categorias cat ON cat.id = c.categoria_id
+         LEFT JOIN generos g ON g.id = c.genero_id
          WHERE e.fecha_cierre > NOW()
            AND e.estado = true
            AND c.estado = true
-           AND c.edad_min <= $1
-           AND c.edad_max >= $1
-           AND (c.genero = $2 OR c.genero = 'mixto')
+           AND cat.edad_min <= $1
+           AND cat.edad_max >= $1
+           AND (LOWER(g.nombre) = $2 OR LOWER(g.nombre) = 'mixto')
          ORDER BY e.fecha ASC`,
-        [edad, genero]
-    ).then(function(result) { return result.rows; });
+        [edad, genero.toLowerCase()]
+    ).then(function(r) { return r.rows; });
 }
 
-//Inscripciones
+// ── Atleta ────────────────────────────────────────────────────────────────────
 
 function obtenerAtletaPorId(atletaId) {
     return pool.query(
-        'SELECT * FROM registros WHERE id = $1 AND rol = $2',
-        [atletaId, 'atleta']
-    ).then(function(result) { return result.rows[0] || null; });
+        `SELECT u.*, a.id AS atleta_id, a.club_id, a.municipio,
+                g.nombre AS genero_nombre
+         FROM atletas a
+         JOIN usuarios u ON u.id = a.usuario_id
+         LEFT JOIN generos g ON g.id = u.genero_id
+         WHERE a.id = $1`,
+        [atletaId]
+    ).then(function(r) { return r.rows[0] || null; });
 }
 
-function existeInscripcion(eventoId, atletaId) {
+// ── Inscripciones ─────────────────────────────────────────────────────────────
+
+function existeInscripcion(convocatoriaId, atletaId) {
     return pool.query(
-        'SELECT id FROM inscripciones WHERE evento_id = $1 AND atleta_id = $2',
-        [eventoId, atletaId]
-    ).then(function(result) { return result.rows[0] || null; });
+        'SELECT id FROM inscripciones WHERE convocatoria_id = $1 AND atleta_id = $2',
+        [convocatoriaId, atletaId]
+    ).then(function(r) { return r.rows[0] || null; });
 }
 
 function crearInscripcion(datos) {
     return pool.query(
-        `INSERT INTO inscripciones
-            (evento_id, atleta_id, nombre_completo, edad, genero, validado, fecha_inscripcion)
-         VALUES ($1, $2, $3, $4, $5, true, NOW())
-         RETURNING *`,
-        [
-            datos.eventoId,
-            datos.atletaId,
-            datos.nombreCompleto,
-            datos.edad,
-            datos.genero
-        ]
-    ).then(function(result) { return result.rows[0]; });
+        `INSERT INTO inscripciones (atleta_id, convocatoria_id, validado, fecha_inscripcion)
+         VALUES ($1,$2,true,NOW()) RETURNING *`,
+        [datos.atletaId, datos.convocatoriaId]
+    ).then(function(r) { return r.rows[0]; });
 }
 
 function obtenerInscripciones(filtro) {
@@ -152,25 +150,36 @@ function obtenerInscripciones(filtro) {
     var params      = [];
     var idx         = 1;
 
-    if (filtro.atletaId) {
-        condiciones.push('atleta_id = $' + idx++);
-        params.push(filtro.atletaId);
-    }
-    if (filtro.eventoId) {
-        condiciones.push('evento_id = $' + idx++);
-        params.push(filtro.eventoId);
-    }
+    if (filtro.atletaId) { condiciones.push('i.atleta_id = $'       + idx++); params.push(filtro.atletaId); }
+    if (filtro.eventoId) { condiciones.push('c.evento_id = $'       + idx++); params.push(filtro.eventoId); }
 
     var where = condiciones.length > 0 ? ' WHERE ' + condiciones.join(' AND ') : '';
-    return pool.query('SELECT * FROM inscripciones' + where, params)
-        .then(function(result) { return result.rows; });
+
+    return pool.query(
+        `SELECT i.*, c.evento_id, e.titulo AS nombre_evento,
+                u.nombre AS nombre_atleta
+         FROM inscripciones i
+         JOIN convocatorias c ON c.id = i.convocatoria_id
+         JOIN eventos e ON e.id = c.evento_id
+         JOIN atletas a ON a.id = i.atleta_id
+         JOIN usuarios u ON u.id = a.usuario_id` + where,
+        params
+    ).then(function(r) { return r.rows; });
 }
 
 function obtenerParticipantesPorEvento(eventoId) {
     return pool.query(
-        'SELECT * FROM inscripciones WHERE evento_id = $1 ORDER BY fecha_inscripcion ASC',
+        `SELECT i.*, u.nombre, u.apellido_paterno, u.apellido_materno,
+                g.nombre AS genero_nombre
+         FROM inscripciones i
+         JOIN convocatorias c ON c.id = i.convocatoria_id
+         JOIN atletas a ON a.id = i.atleta_id
+         JOIN usuarios u ON u.id = a.usuario_id
+         LEFT JOIN generos g ON g.id = u.genero_id
+         WHERE c.evento_id = $1
+         ORDER BY i.fecha_inscripcion ASC`,
         [eventoId]
-    ).then(function(result) { return result.rows; });
+    ).then(function(r) { return r.rows; });
 }
 
 function obtenerResumenEventos() {
@@ -179,29 +188,20 @@ function obtenerResumenEventos() {
         pool.query('SELECT COUNT(*) AS total FROM eventos WHERE estado = true'),
         pool.query('SELECT COUNT(*) AS total FROM eventos WHERE estado = true AND fecha_cierre > NOW()'),
         pool.query('SELECT * FROM eventos ORDER BY created_at DESC')
-    ]).then(function(resultados) {
+    ]).then(function(res) {
         return {
-            totalEventos:     parseInt(resultados[0].rows[0].total, 10),
-            eventosActivos:   parseInt(resultados[1].rows[0].total, 10),
-            eventosAbiertos:  parseInt(resultados[2].rows[0].total, 10),
-            detalle:          resultados[3].rows
+            totalEventos:    parseInt(res[0].rows[0].total, 10),
+            eventosActivos:  parseInt(res[1].rows[0].total, 10),
+            eventosAbiertos: parseInt(res[2].rows[0].total, 10),
+            detalle:         res[3].rows
         };
     });
 }
 
 module.exports = {
-    obtenerTodos,
-    obtenerPorId,
-    crearEvento,
-    actualizarFechaCierre,
-    crearConvocatoria,
-    obtenerConvocatoriasPorEvento,
-    obtenerEventoConConvocatorias,
-    obtenerConvocatoriasParaAtleta,
-    obtenerAtletaPorId,
-    existeInscripcion,
-    crearInscripcion,
-    obtenerInscripciones,
-    obtenerParticipantesPorEvento,
-    obtenerResumenEventos
+    obtenerTodos, obtenerPorId, crearEvento, actualizarFechaCierre,
+    crearConvocatoria, obtenerConvocatoriasPorEvento, obtenerEventoConConvocatorias,
+    obtenerConvocatoriasParaAtleta, obtenerAtletaPorId,
+    existeInscripcion, crearInscripcion, obtenerInscripciones,
+    obtenerParticipantesPorEvento, obtenerResumenEventos
 };
