@@ -1,30 +1,56 @@
-//src/models/registro.model.js
+// src/models/registro.model.js
 var pool   = require('../config/db');
 var bcrypt = require('bcrypt');
-
 var SALT_ROUNDS = 10;
 
-//Registro
+// ── Lookups de FKs ────────────────────────────────────────────────────────────
+
+function obtenerRolId(nombre) {
+    return pool.query('SELECT id FROM roles WHERE nombre = $1', [nombre])
+        .then(function(r) { return r.rows[0] ? r.rows[0].id : null; });
+}
+
+function obtenerGeneroId(nombre) {
+    if (!nombre) return Promise.resolve(null);
+    return pool.query('SELECT id FROM generos WHERE LOWER(nombre) = LOWER($1)', [nombre])
+        .then(function(r) { return r.rows[0] ? r.rows[0].id : null; });
+}
+
+// ── Verificaciones ────────────────────────────────────────────────────────────
 
 function existeCurp(curp) {
-    return pool.query('SELECT id FROM registros WHERE curp = $1', [curp])
+    return pool.query('SELECT id FROM usuarios WHERE curp = $1', [curp])
         .then(function(r) { return !!r.rows[0]; });
 }
 
-function existeGmail(gmail) {
-    return pool.query('SELECT id FROM registros WHERE gmail = $1', [gmail])
+function existeEmail(email) {
+    return pool.query('SELECT id FROM usuarios WHERE email = $1', [email])
         .then(function(r) { return !!r.rows[0]; });
 }
+
+// ── Crear usuario (INSERT en usuarios + atletas o entrenadores) ───────────────
 
 function crear(datos) {
     return bcrypt.hash(datos.password, SALT_ROUNDS)
         .then(function(hash) {
+            return Promise.all([
+                Promise.resolve(hash),
+                obtenerRolId(datos.rol),
+                obtenerGeneroId(datos.sexo)
+            ]);
+        })
+        .then(function(res) {
+            var hash    = res[0];
+            var rolId   = res[1];
+            var genId   = res[2];
+
+            if (!rolId) throw new Error('Rol no encontrado: ' + datos.rol);
+
             return pool.query(
-                `INSERT INTO registros
-                    (curp, nombre, apellidopa, apellidoma, fecha_nacimiento, rol, telefono,
-                     gmail, password, sexo, estado_nacimiento, club_id,
-                     certificaciones, especialidades, anos_experiencia, estado, fecha_registro)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW())
+                `INSERT INTO usuarios
+                    (curp, nombre, apellido_paterno, apellido_materno, fecha_nacimiento,
+                     telefono, email, password, estado_nacimiento, rol_id, genero_id, fecha_registro)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
                  RETURNING *`,
                 [
                     datos.curp,
@@ -32,32 +58,100 @@ function crear(datos) {
                     datos.apellidopa,
                     datos.apellidoma,
                     datos.fechaNacimiento,
-                    datos.rol,
                     datos.telefono,
                     datos.gmail,
                     hash,
-                    datos.sexo,
                     datos.estadoNacimiento,
-                    datos.clubId     || null,
-                    datos.certificaciones  ? JSON.stringify(datos.certificaciones)  : null,
-                    datos.especialidades   ? JSON.stringify(datos.especialidades)   : null,
-                    datos.añosExperiencia  || 0,
-                    datos.estado     || 'activo'
+                    rolId,
+                    genId
                 ]
             );
         })
-        .then(function(r) { return r.rows[0]; });
+        .then(function(r) {
+            var usuario = r.rows[0];
+
+            if (datos.rol === 'atleta') {
+                return pool.query(
+                    `INSERT INTO atletas (usuario_id, club_id, municipio)
+                     VALUES ($1, $2, $3) RETURNING *`,
+                    [usuario.id, datos.clubId || null, datos.municipio || null]
+                ).then(function() { return usuario; });
+            }
+
+            if (datos.rol === 'entrenador') {
+                return pool.query(
+                    `INSERT INTO entrenadores (usuario_id, club_id, anos_experiencia, estado)
+                     VALUES ($1, $2, $3, 'activo') RETURNING *`,
+                    [usuario.id, datos.clubId || null, datos.añosExperiencia || 0]
+                ).then(function(entRes) {
+                    var entrenador = entRes.rows[0];
+                    var promesas   = [];
+
+                    if (datos.certificaciones && datos.certificaciones.length > 0) {
+                        datos.certificaciones.forEach(function(cert) {
+                            promesas.push(pool.query(
+                                'INSERT INTO certificaciones (entrenador_id, nombre) VALUES ($1, $2)',
+                                [entrenador.id, cert]
+                            ));
+                        });
+                    }
+                    if (datos.especialidades && datos.especialidades.length > 0) {
+                        datos.especialidades.forEach(function(esp) {
+                            promesas.push(pool.query(
+                                'INSERT INTO especialidades (entrenador_id, nombre) VALUES ($1, $2)',
+                                [entrenador.id, esp]
+                            ));
+                        });
+                    }
+                    return Promise.all(promesas).then(function() { return usuario; });
+                });
+            }
+
+            return usuario;
+        });
 }
 
-//Consultas generales
-function obtenerPorId(id) {
-    return pool.query('SELECT * FROM registros WHERE id = $1', [id])
-        .then(function(r) { return r.rows[0] || null; });
+// ── Consultas con JOIN completo ───────────────────────────────────────────────
+
+function obtenerUsuarioCompleto(usuarioId) {
+    return pool.query(
+        `SELECT u.*, r.nombre AS rol_nombre, g.nombre AS genero_nombre,
+                a.id AS atleta_id, a.club_id, a.municipio, a.lugar_entrenamiento,
+                e.id AS entrenador_id, e.club_id AS entrenador_club_id, e.anos_experiencia, e.estado AS entrenador_estado
+         FROM usuarios u
+         JOIN roles r ON r.id = u.rol_id
+         LEFT JOIN generos g ON g.id = u.genero_id
+         LEFT JOIN atletas a ON a.usuario_id = u.id
+         LEFT JOIN entrenadores e ON e.usuario_id = u.id
+         WHERE u.id = $1`,
+        [usuarioId]
+    ).then(function(r) { return r.rows[0] || null; });
 }
 
-function obtenerAtletaPorId(id) {
-    return pool.query("SELECT * FROM registros WHERE id = $1 AND rol = 'atleta'", [id])
-        .then(function(r) { return r.rows[0] || null; });
+function obtenerAtletaPorUsuarioId(usuarioId) {
+    return pool.query(
+        `SELECT u.*, r.nombre AS rol_nombre, g.nombre AS genero_nombre,
+                a.id AS atleta_id, a.club_id, a.municipio, a.lugar_entrenamiento
+         FROM usuarios u
+         JOIN roles r ON r.id = u.rol_id
+         LEFT JOIN generos g ON g.id = u.genero_id
+         JOIN atletas a ON a.usuario_id = u.id
+         WHERE u.id = $1`,
+        [usuarioId]
+    ).then(function(r) { return r.rows[0] || null; });
+}
+
+function obtenerAtletaPorAtletaId(atletaId) {
+    return pool.query(
+        `SELECT u.*, r.nombre AS rol_nombre, g.nombre AS genero_nombre,
+                a.id AS atleta_id, a.club_id, a.municipio, a.lugar_entrenamiento
+         FROM usuarios u
+         JOIN roles r ON r.id = u.rol_id
+         LEFT JOIN generos g ON g.id = u.genero_id
+         JOIN atletas a ON a.usuario_id = u.id
+         WHERE a.id = $1`,
+        [atletaId]
+    ).then(function(r) { return r.rows[0] || null; });
 }
 
 function obtenerClubes() {
@@ -66,28 +160,28 @@ function obtenerClubes() {
 }
 
 function obtenerAtletas(filtro) {
-    //filtro: { clubId, independientes, rol, sinClub }
-    var condiciones = ["rol = 'atleta'"];
+    var condiciones = ["r.nombre = 'atleta'"];
     var params      = [];
     var idx         = 1;
 
     if (filtro.clubId) {
-        condiciones.push('club_id = $' + idx++);
+        condiciones.push('a.club_id = $' + idx++);
         params.push(filtro.clubId);
-    } else if (filtro.independientes) {
-        condiciones.push('club_id IS NULL');
+    } else if (filtro.independientes || filtro.sinClub) {
+        condiciones.push('a.club_id IS NULL');
     }
 
-    if (filtro.sinClub) {
-        condiciones.push('club_id IS NULL');
-    }
-
-    var orden = filtro.sort === 'createdAt' ? ' ORDER BY id DESC' : ' ORDER BY nombre ASC';
     var limite = filtro.limit ? (' LIMIT $' + idx) : '';
     if (filtro.limit) params.push(filtro.limit);
 
     return pool.query(
-        'SELECT * FROM registros WHERE ' + condiciones.join(' AND ') + orden + limite,
+        `SELECT u.*, r.nombre AS rol_nombre, g.nombre AS genero_nombre,
+                a.id AS atleta_id, a.club_id, a.municipio
+         FROM usuarios u
+         JOIN roles r ON r.id = u.rol_id
+         LEFT JOIN generos g ON g.id = u.genero_id
+         JOIN atletas a ON a.usuario_id = u.id
+         WHERE ` + condiciones.join(' AND ') + ' ORDER BY u.nombre ASC' + limite,
         params
     ).then(function(r) { return r.rows; });
 }
@@ -95,14 +189,18 @@ function obtenerAtletas(filtro) {
 function obtenerAtletasPorClub(clubId, opciones) {
     opciones = opciones || {};
     var params = [clubId];
-    var orden  = opciones.sort === 'createdAt' ? ' ORDER BY id DESC' : ' ORDER BY nombre ASC';
     var limite = '';
-    if (opciones.limit) {
-        limite = ' LIMIT $2';
-        params.push(opciones.limit);
-    }
+    if (opciones.limit) { limite = ' LIMIT $2'; params.push(opciones.limit); }
+
     return pool.query(
-        "SELECT * FROM registros WHERE club_id = $1 AND rol = 'atleta'" + orden + limite,
+        `SELECT u.*, r.nombre AS rol_nombre, g.nombre AS genero_nombre,
+                a.id AS atleta_id, a.club_id, a.municipio, a.lugar_entrenamiento
+         FROM usuarios u
+         JOIN roles r ON r.id = u.rol_id
+         LEFT JOIN generos g ON g.id = u.genero_id
+         JOIN atletas a ON a.usuario_id = u.id
+         WHERE a.club_id = $1
+         ORDER BY u.nombre ASC` + limite,
         params
     ).then(function(r) { return r.rows; });
 }
@@ -113,77 +211,78 @@ function obtenerUsuarios(filtro) {
     var idx         = 1;
 
     if (filtro.rol) {
-        condiciones.push('rol = $' + idx++);
+        condiciones.push('r.nombre = $' + idx++);
         params.push(filtro.rol);
-    }
-    if (filtro.sinClub && filtro.rol === 'atleta') {
-        condiciones.push('club_id IS NULL');
     }
 
     var where = condiciones.length > 0 ? ' WHERE ' + condiciones.join(' AND ') : '';
-    return pool.query('SELECT * FROM registros' + where, params)
-        .then(function(r) { return r.rows; });
+    return pool.query(
+        `SELECT u.*, r.nombre AS rol_nombre, g.nombre AS genero_nombre
+         FROM usuarios u
+         JOIN roles r ON r.id = u.rol_id
+         LEFT JOIN generos g ON g.id = u.genero_id` + where,
+        params
+    ).then(function(r) { return r.rows; });
 }
 
-//Actualizar
-function actualizarClubAtleta(id, clubId) {
-    //clubId = null -> desasociar, clubId = valor -> asociar
+// ── Actualizar ────────────────────────────────────────────────────────────────
+
+function actualizarClubAtleta(atletaId, clubId) {
     return pool.query(
-        "UPDATE registros SET club_id = $1 WHERE id = $2 AND rol = 'atleta' RETURNING id",
-        [clubId || null, id]
+        'UPDATE atletas SET club_id = $1 WHERE id = $2 RETURNING id',
+        [clubId || null, atletaId]
     ).then(function(r) { return r.rows[0] || null; });
 }
 
-function actualizar(id, datos) {
-    var campos  = [];
-    var params  = [];
-    var idx     = 1;
+function actualizar(usuarioId, datos) {
+    var camposU  = [];
+    var paramsU  = [];
+    var idx      = 1;
 
-    var mapaColumnas = {
+    var mapaU = {
         nombre:           'nombre',
-        apellidopa:       'apellidopa',
-        apellidoma:       'apellidoma',
+        apellidopa:       'apellido_paterno',
+        apellidoma:       'apellido_materno',
         fechaNacimiento:  'fecha_nacimiento',
         telefono:         'telefono',
-        gmail:            'gmail',
-        sexo:             'sexo',
-        estadoNacimiento: 'estado_nacimiento',
-        rol:              'rol',
-        certificaciones:  'certificaciones',
-        especialidades:   'especialidades',
-        añosExperiencia:  'anos_experiencia',
-        estado:           'estado'
+        gmail:            'email',
+        estadoNacimiento: 'estado_nacimiento'
     };
 
-    Object.keys(mapaColumnas).forEach(function(campo) {
-        if (datos[campo] !== undefined) {
-            campos.push(mapaColumnas[campo] + ' = $' + idx++);
-            var val = datos[campo];
-            //Arrays -> JSON string para columnas jsonb/text[]
-            if (Array.isArray(val)) val = JSON.stringify(val);
-            params.push(val);
+    Object.keys(mapaU).forEach(function(k) {
+        if (datos[k] !== undefined) {
+            camposU.push(mapaU[k] + ' = $' + idx++);
+            paramsU.push(datos[k]);
         }
     });
 
-    //club_id se maneja aparte porque puede ser null explícito
-    if (datos.hasOwnProperty('clubId')) {
-        campos.push('club_id = $' + idx++);
-        params.push(datos.clubId || null);
+    var promesaUsuario = Promise.resolve(null);
+    if (camposU.length > 0) {
+        paramsU.push(usuarioId);
+        promesaUsuario = pool.query(
+            'UPDATE usuarios SET ' + camposU.join(', ') + ' WHERE id = $' + idx + ' RETURNING *',
+            paramsU
+        ).then(function(r) { return r.rows[0]; });
     }
 
-    if (campos.length === 0) return Promise.resolve(null);
+    // Actualizar atleta si viene clubId
+    var promesaAtleta = Promise.resolve(null);
+    if (datos.hasOwnProperty('clubId')) {
+        promesaAtleta = pool.query(
+            'UPDATE atletas SET club_id = $1 WHERE usuario_id = $2',
+            [datos.clubId || null, usuarioId]
+        );
+    }
 
-    params.push(id);
-    return pool.query(
-        'UPDATE registros SET ' + campos.join(', ') + ' WHERE id = $' + idx + ' RETURNING *',
-        params
-    ).then(function(r) { return r.rows[0] || null; });
+    return Promise.all([promesaUsuario, promesaAtleta])
+        .then(function(res) { return res[0]; });
 }
 
-//Solicitudes de club 
+// ── Solicitudes de club ───────────────────────────────────────────────────────
+
 function obtenerSolicitudesPendientesAtleta(atletaId) {
     return pool.query(
-        "SELECT id FROM solicitudes_club WHERE atleta_id = $1 AND estado = 'pendiente'",
+        "SELECT id FROM solicitudes_club WHERE usuario_id = $1 AND estado = 'pendiente'",
         [atletaId]
     ).then(function(r) { return r.rows[0] || null; });
 }
@@ -195,7 +294,7 @@ function verificarClubExiste(clubId) {
 
 function crearSolicitudClub(datos) {
     return pool.query(
-        `INSERT INTO solicitudes_club (atleta_id, club_id, tipo, estado, fecha_solicitud)
+        `INSERT INTO solicitudes_club (usuario_id, club_id, tipo, estado, fecha_solicitud)
          VALUES ($1, $2, $3, 'pendiente', NOW()) RETURNING *`,
         [datos.atletaId, datos.clubId || null, datos.tipo]
     ).then(function(r) { return r.rows[0]; });
@@ -206,14 +305,8 @@ function obtenerSolicitudesClub(filtro) {
     var params      = [];
     var idx         = 1;
 
-    if (filtro.clubId) {
-        condiciones.push('club_id = $' + idx++);
-        params.push(filtro.clubId);
-    }
-    if (filtro.atletaId) {
-        condiciones.push('atleta_id = $' + idx++);
-        params.push(filtro.atletaId);
-    }
+    if (filtro.clubId)   { condiciones.push('club_id = $'    + idx++); params.push(filtro.clubId); }
+    if (filtro.atletaId) { condiciones.push('usuario_id = $' + idx++); params.push(filtro.atletaId); }
 
     var where = condiciones.length > 0 ? ' WHERE ' + condiciones.join(' AND ') : '';
     return pool.query('SELECT * FROM solicitudes_club' + where, params)
@@ -226,7 +319,6 @@ function obtenerSolicitudClubPorId(id) {
 }
 
 function procesarSolicitudClub(solicitudId, estado, solicitud) {
-    //Actualizar estado de la solicitud
     var promesaEstado = pool.query(
         'UPDATE solicitudes_club SET estado = $1 WHERE id = $2',
         [estado, solicitudId]
@@ -234,25 +326,24 @@ function procesarSolicitudClub(solicitudId, estado, solicitud) {
 
     if (estado !== 'aceptada') return promesaEstado;
 
-    // Si se acepta actualizar atleta según tipo
     var promesaAtleta;
     if (solicitud.tipo === 'asociar') {
         promesaAtleta = pool.query(
-            "UPDATE registros SET club_id = $1, fecha_ingreso_club = NOW() WHERE id = $2 AND rol = 'atleta'",
-            [solicitud.club_id, solicitud.atleta_id]
+            'UPDATE atletas SET club_id = $1, fecha_ingreso_club = NOW() WHERE usuario_id = $2',
+            [solicitud.club_id, solicitud.usuario_id]
         );
     } else {
-        //independiente quitar club
         promesaAtleta = pool.query(
-            "UPDATE registros SET club_id = NULL WHERE id = $1 AND rol = 'atleta'",
-            [solicitud.atleta_id]
+            'UPDATE atletas SET club_id = NULL WHERE usuario_id = $1',
+            [solicitud.usuario_id]
         );
     }
 
     return Promise.all([promesaEstado, promesaAtleta]);
 }
 
-//Eliminación con validaciones
+// ── Eliminación con validaciones ──────────────────────────────────────────────
+
 function contarResultadosAtleta(atletaId) {
     return pool.query('SELECT COUNT(*) AS total FROM resultados WHERE atleta_id = $1', [atletaId])
         .then(function(r) { return parseInt(r.rows[0].total, 10); });
@@ -264,23 +355,31 @@ function contarInscripcionesAtleta(atletaId) {
 }
 
 function contarAtletasDeClub(clubId) {
-    return pool.query(
-        "SELECT COUNT(*) AS total FROM registros WHERE club_id = $1 AND rol = 'atleta'",
-        [clubId]
-    ).then(function(r) { return parseInt(r.rows[0].total, 10); });
+    return pool.query('SELECT COUNT(*) AS total FROM atletas WHERE club_id = $1', [clubId])
+        .then(function(r) { return parseInt(r.rows[0].total, 10); });
 }
 
-function eliminar(id) {
-    return pool.query('DELETE FROM registros WHERE id = $1 RETURNING id', [id])
+function eliminar(usuarioId) {
+    // Eliminar atleta/entrenador primero por FK, luego usuario
+    return pool.query('DELETE FROM atletas      WHERE usuario_id = $1', [usuarioId])
+        .then(function() {
+            return pool.query('DELETE FROM entrenadores WHERE usuario_id = $1', [usuarioId]);
+        })
+        .then(function() {
+            return pool.query('DELETE FROM usuarios WHERE id = $1 RETURNING id', [usuarioId]);
+        })
         .then(function(r) { return r.rows[0] || null; });
 }
 
 module.exports = {
+    obtenerRolId,
+    obtenerGeneroId,
     existeCurp,
-    existeGmail,
+    existeEmail,
     crear,
-    obtenerPorId,
-    obtenerAtletaPorId,
+    obtenerUsuarioCompleto,
+    obtenerAtletaPorUsuarioId,
+    obtenerAtletaPorAtletaId,
     obtenerClubes,
     obtenerAtletas,
     obtenerAtletasPorClub,
