@@ -1,4 +1,4 @@
-// src/models/login.model.js
+//src/models/login.model.js
 var pool = require('../config/db');
 
 function buscarAtletaPorCurp(curp) {
