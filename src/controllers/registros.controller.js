@@ -116,7 +116,7 @@ function actualizarClubAtleta(req, res) {
 
 //GET/api/registros/atleta/:id
 function obtenerAtleta(req, res) {
-    Registro.obtenerAtletaPorId(req.params.id)
+    Registro.obtenerAtletaPorAtletaId(req.params.id)
         .then(function(atleta) {
             if (!atleta) return res.status(404).json({ error: 'Atleta no encontrado' });
             res.json(atleta);
