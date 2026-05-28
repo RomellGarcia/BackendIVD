@@ -116,7 +116,7 @@ function actualizarClubAtleta(req, res) {
 
 //GET/api/registros/atleta/:id
 function obtenerAtleta(req, res) {
-    Registro.obtenerAtletaPorAtletaId(req.params.id)
+    Registro.obtenerAtletaPorUsuarioId(req.params.id)
         .then(function(atleta) {
             if (!atleta) return res.status(404).json({ error: 'Atleta no encontrado' });
             res.json(atleta);
@@ -124,7 +124,6 @@ function obtenerAtleta(req, res) {
         .catch(function(error) {
             res.status(500).json({ error: 'Error al obtener atleta', details: error.message });
         });
-        
 }
 
 //GET/api/registros/atletas-club
