@@ -10,7 +10,6 @@ export const register = async (req, res, next) => {
       password,
       options: {
         data: { nombre, apellido_paterno, apellido_materno, rol_id }
-        // user_metadata disponible en el trigger para insertar en `usuarios`
       }
     })
 
@@ -55,7 +54,6 @@ export const logout = async (req, res, next) => {
 
 export const me = async (req, res, next) => {
   try {
-    // req.user viene del middleware requireAuth (ya validado)
     const usuario = await findBySupabaseUid(req.user.id)
     if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado en la BD' })
     res.json({ usuario })

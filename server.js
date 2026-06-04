@@ -1,4 +1,4 @@
-// server.js — versión final con todas las rutas migradas a PostgreSQL
+/* server.js — versión final con todas las rutas migradas a PostgreSQL
 var express    = require('express');
 var dotenv     = require('dotenv');
 var cors       = require('cors');
@@ -65,4 +65,14 @@ app.get('/', function(req, res) {
 var PORT = process.env.PORT || 5000;
 app.listen(PORT, function() {
     console.log('Servidor corriendo en http://localhost:' + PORT);
-});
+});*/
+
+// server.js
+import 'dotenv/config'
+import app from './src/app.js'
+
+const PORT = process.env.PORT || 5000
+
+app.listen(PORT, () => {
+  console.log(`Servidor IVD corriendo en http://localhost:${PORT}`)
+})
