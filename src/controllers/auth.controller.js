@@ -1,29 +1,45 @@
 import { supabase } from '../config/supabase.js'
 import { findBySupabaseUid } from '../models/usuario.model.js'
 
+// src/controllers/auth.controller.js
 export const register = async (req, res, next) => {
   try {
-    const { email, password, nombre, apellido_paterno, apellido_materno, rol_id } = req.body
+    const {
+      email, password,
+      nombre, apellido_paterno, apellido_materno,
+      fecha_nacimiento, telefono, curp,
+      estado_nacimiento, rol, genero
+    } = req.body
 
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { nombre, apellido_paterno, apellido_materno, rol_id }
+        data: {
+          // Todo esto llega al trigger como raw_user_meta_data
+          nombre,
+          apellido_paterno,
+          apellido_materno,
+          fecha_nacimiento,
+          telefono,
+          curp,
+          estado_nacimiento,
+          rol,
+          genero 
+        }
       }
     })
 
     if (error) return res.status(400).json({ error: error.message })
 
     res.status(201).json({
-      mensaje: 'Usuario registrado. Revisa tu correo para confirmar tu cuenta.',
+      mensaje: 'Registro exitoso. Revisa tu correo para confirmar tu cuenta.',
       user_id: data.user?.id
     })
   } catch (err) {
     next(err)
   }
 }
-
 export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body

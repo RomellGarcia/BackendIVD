@@ -1,15 +1,21 @@
+// src/schemas/auth.schema.js
 import { z } from 'zod'
 
 export const registerSchema = z.object({
-  email: z.string().email('Email inválido'),
-  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
-  nombre: z.string().min(2, 'El nombre es requerido'),
-  apellido_paterno: z.string().min(2, 'El apellido paterno es requerido'),
-  apellido_materno: z.string().optional(),
-  rol_id: z.number().int().positive()
+  email:             z.string().email('Email inválido'),
+  password:          z.string().min(8, 'Mínimo 8 caracteres'),
+  nombre:            z.string().min(2),
+  apellido_paterno:  z.string().min(2),
+  apellido_materno:  z.string().optional(),
+  fecha_nacimiento:  z.string().date('Fecha inválida'),
+  telefono:          z.string().regex(/^\d{10}$/, 'El teléfono debe tener 10 dígitos'),
+  curp:              z.string().regex(/^[A-Za-z0-9]{18}$/, 'CURP inválida'),
+  estado_nacimiento: z.string().optional(),
+  rol:               z.enum(['atleta', 'entrenador']).default('atleta'),
+  genero:            z.enum(['masculino', 'femenino'])
 })
 
 export const loginSchema = z.object({
-  email: z.string().email('Email inválido'),
-  password: z.string().min(1, 'La contraseña es requerida')
+  email:    z.string().email(),
+  password: z.string().min(1)
 })
