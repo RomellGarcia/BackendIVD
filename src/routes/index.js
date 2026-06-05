@@ -19,6 +19,6 @@ router.use('/entrenadores',   entrenadoresRoutes)
 router.use('/eventos',        eventoRoutes)
 router.use('/resultados',     resultadoRoutes)
 router.use('/contenido',      contenidoEstaticoRoutes)
-router.use('/perfilEmpresa', perfilEmpresaRoutes)
+router.use('/perfil-empresa', perfilEmpresaRoutes)
 
 export { router }
