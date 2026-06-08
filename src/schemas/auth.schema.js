@@ -17,7 +17,7 @@ export const registerSchema = z.object({
 
 export const loginSchema = z.object({
   email:    z.string().email().optional(),
-  curp:     z.string().regex(/^[A-Za-z0-9]{18}$/).optional(),
+  curp:     z.string().regex(/^[A-Za-z0-9]{18}$/, 'CURP inválida').optional(),
   password: z.string().min(1)
 }).refine(
   data => data.email || data.curp,
