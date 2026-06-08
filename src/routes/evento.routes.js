@@ -12,15 +12,15 @@ import {
 
 const router = Router()
 
-//Publicas
-router.get('/',    EventoController.getAll)
-router.get('/:id', EventoController.getById)
-router.get('/:id/participantes', EventoController.getParticipantes)
-
-//Atleta autenticado
+//Rutas especificas
 router.get('/mis-convocatorias',  requireAuth, checkAtleta, EventoController.getConvocatoriasParaAtleta)
 router.get('/mis-inscripciones',  requireAuth, checkAtleta, EventoController.getInscripcionesByAtleta)
 router.post('/inscripciones',     requireAuth, checkAtleta, validate(inscripcionSchema), EventoController.inscribir)
+
+//Rutas genericas
+router.get('/',    EventoController.getAll)
+router.get('/:id', EventoController.getById)
+router.get('/:id/participantes', EventoController.getParticipantes)
 
 //Admin
 router.post('/',    requireAuth, validate(createEventoSchema),     EventoController.create)

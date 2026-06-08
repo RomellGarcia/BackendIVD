@@ -12,19 +12,16 @@ import {
 
 const router = Router()
 
-//Publicas
+//Rutas especificas
+router.get('/perfil',         requireAuth, checkAtleta, AtletaController.getPerfil)
+router.put('/perfil',         requireAuth, checkAtleta, validate(updatePerfilAtletaSchema), AtletaController.updatePerfil)
+router.get('/solicitudes-club',     requireAuth, AtletaController.getSolicitudesClub)
+router.post('/solicitudes-club',    requireAuth, checkAtleta, validate(solicitudClubSchema), AtletaController.crearSolicitudClub)
+router.put('/solicitudes-club/:id', requireAuth, validate(procesarSolicitudSchema), AtletaController.procesarSolicitudClub)
+
+//Rutas genericas
 router.get('/',     AtletaController.getAll)
 router.get('/:id',  AtletaController.getById)
-
-//Atleta 
-router.get('/perfil',  requireAuth, checkAtleta, AtletaController.getPerfil)
-router.put('/perfil',  requireAuth, checkAtleta, validate(updatePerfilAtletaSchema), AtletaController.updatePerfil)
-
-router.post('/solicitudes-club',     requireAuth, checkAtleta, validate(solicitudClubSchema),    AtletaController.crearSolicitudClub)
-router.get('/solicitudes-club',      requireAuth, AtletaController.getSolicitudesClub)
-router.put('/solicitudes-club/:id',  requireAuth, validate(procesarSolicitudSchema), AtletaController.procesarSolicitudClub)
-
-//Admin
 router.put('/:id/club',  requireAuth, validate(updateClubAtletaSchema), AtletaController.updateClub)
 router.delete('/:id',    requireAuth, AtletaController.remove)
 
