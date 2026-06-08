@@ -16,6 +16,10 @@ export const registerSchema = z.object({
 })
 
 export const loginSchema = z.object({
-  email:    z.string().email(),
+  email:    z.string().email().optional(),
+  curp:     z.string().regex(/^[A-Za-z0-9]{18}$/).optional(),
   password: z.string().min(1)
-})
+}).refine(
+  data => data.email || data.curp,
+  { message: 'Se requiere email o CURP' }
+)

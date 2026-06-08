@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabase.js'
 import { findBySupabaseUid } from '../models/usuario.model.js'
+import { pool } from '../config/db.js'
 
 // src/controllers/auth.controller.js
 export const register = async (req, res, next) => {
@@ -73,6 +74,41 @@ export const me = async (req, res, next) => {
     const usuario = await findBySupabaseUid(req.user.id)
     if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado en la BD' })
     res.json({ usuario })
+  } catch (err) {
+    next(err)
+  }
+}
+
+export const login = async (req, res, next) => {
+  try {
+    const { email, curp, password } = req.body
+
+    let emailToUse = email
+
+    // Si viene CURP en lugar de email, buscar el email en usuarios
+    if (curp && !email) {
+      const { rows } = await pool.query(
+        `SELECT email FROM usuarios WHERE curp = $1`,
+        [curp.toUpperCase()]
+      )
+      if (!rows[0]) {
+        return res.status(401).json({ error: 'CURP no encontrada' })
+      }
+      emailToUse = rows[0].email
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: emailToUse,
+      password
+    })
+    if (error) return res.status(401).json({ error: 'Credenciales incorrectas' })
+
+    const usuario = await findBySupabaseUid(data.user.id)
+
+    res.json({
+      access_token: data.session.access_token,
+      usuario
+    })
   } catch (err) {
     next(err)
   }
