@@ -1,7 +1,5 @@
 import { pool } from '../config/db.js'
 
-// Se llama después de que el trigger ya insertó el row base
-// Solo lo usamos para leer datos enriquecidos del usuario
 export const findBySupabaseUid = async (supabaseUid) => {
   const { rows } = await pool.query(
     `SELECT 
@@ -11,9 +9,15 @@ export const findBySupabaseUid = async (supabaseUid) => {
       u.apellido_materno,
       u.email,
       u.supabase_uid,
-      r.nombre AS rol
+      u.telefono,
+      u.curp,
+      u.fecha_nacimiento,
+      u.estado_nacimiento,
+      r.nombre AS rol,
+      g.nombre AS genero
      FROM usuarios u
      JOIN roles r ON u.rol_id = r.id
+     LEFT JOIN generos g ON u.genero_id = g.id
      WHERE u.supabase_uid = $1`,
     [supabaseUid]
   )
