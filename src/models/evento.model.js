@@ -5,7 +5,7 @@ export const findAll = async (limit) => {
   const query = `
     SELECT
       e.id, e.titulo, e.fecha, e.hora, e.lugar,
-      e.descripcion, e.fecha_cierre, e.estado, e.created_at,
+      e.descripcion, e.fecha_cierre, e.estado, e.imagen_url, e.created_at,
       COALESCE(
         JSON_AGG(
           jsonb_build_object(
@@ -36,7 +36,7 @@ export const findById = async (id) => {
   const { rows } = await pool.query(
     `SELECT
       e.id, e.titulo, e.fecha, e.hora, e.lugar,
-      e.descripcion, e.fecha_cierre, e.estado, e.created_at,
+      e.descripcion, e.fecha_cierre, e.estado, e.imagen_url, e.created_at,
       COALESCE(
         JSON_AGG(
           jsonb_build_object(
@@ -64,16 +64,16 @@ export const findById = async (id) => {
 }
 
 //Crear evento y sus convocatorias en una transacción
-export const create = async ({ titulo, fecha, hora, lugar, descripcion, fecha_cierre, convocatorias }) => {
+export const create = async ({ titulo, fecha, hora, lugar, descripcion, fecha_cierre, imagen_url, convocatorias }) => {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
 
     const { rows: eventoRows } = await client.query(
-      `INSERT INTO eventos (titulo, fecha, hora, lugar, descripcion, fecha_cierre)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO eventos (titulo, fecha, hora, lugar, descripcion, fecha_cierre, imagen_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [titulo, fecha, hora, lugar, descripcion || null, fecha_cierre]
+      [titulo, fecha, hora, lugar, descripcion || null, fecha_cierre, imagen_url || null]
     )
     const evento = eventoRows[0]
 
@@ -120,7 +120,7 @@ export const findConvocatoriasParaAtleta = async (atletaId) => {
   const { rows } = await pool.query(
     `SELECT
       e.id AS evento_id, e.titulo, e.fecha, e.hora,
-      e.lugar, e.descripcion, e.fecha_cierre,
+      e.lugar, e.descripcion, e.fecha_cierre, e.imagen_url,
       c.id AS convocatoria_id,
       d.nombre AS disciplina,
       cat.nombre AS categoria, cat.edad_min, cat.edad_max,

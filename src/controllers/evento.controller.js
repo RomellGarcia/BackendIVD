@@ -1,5 +1,6 @@
-import * as EventoModel      from '../models/evento.model.js'
+import * as EventoModel from '../models/evento.model.js'
 import * as InscripcionModel from '../models/inscripcion.model.js'
+import cloudinary from 'cloudinary'
 
 export const getAll = async (req, res, next) => {
   try {
@@ -18,12 +19,22 @@ export const getById = async (req, res, next) => {
 
 export const create = async (req, res, next) => {
   try {
-    //Si no viene fecha_cierre, calcularla 24h antes del evento
     const body = { ...req.body }
+
+    // Si no viene fecha_cierre, calcularla 24h antes del evento
     if (!body.fecha_cierre) {
       const fechaEvento = new Date(body.fecha)
       body.fecha_cierre = new Date(fechaEvento.getTime() - 24 * 60 * 60 * 1000).toISOString()
     }
+
+    // ── Novedad: Subir imagen a Cloudinary si viene en la petición ──
+    if (req.files && req.files.imagen) {
+      const result = await cloudinary.v2.uploader.upload(req.files.imagen.tempFilePath, {
+        folder: 'ivd_eventos' // Se creará esta carpeta en tu Cloudinary para mantener el orden
+      })
+      body.imagen_url = result.secure_url // Guardamos la URL segura que nos devuelve Cloudinary
+    }
+
     const evento = await EventoModel.create(body)
     res.status(201).json({ evento })
   } catch (err) { next(err) }
@@ -53,7 +64,7 @@ export const getParticipantes = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-//Requiere que req.atletaId venga de un middleware checkAtleta (igual que checkEntrenador)
+// Requiere que req.atletaId venga de un middleware checkAtleta (igual que checkEntrenador)
 export const getConvocatoriasParaAtleta = async (req, res, next) => {
   try {
     const convocatorias = await InscripcionModel.findConvocatoriasParaAtleta(req.atletaId)
