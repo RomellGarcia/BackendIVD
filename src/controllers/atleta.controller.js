@@ -34,6 +34,14 @@ export const updatePerfil = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+export const updateAdmin = async (req, res, next) => {
+  try {
+    const atleta = await AtletaModel.updateAdmin(req.params.id, req.body)
+    if (!atleta) return res.status(404).json({ error: 'Atleta no encontrado' })
+    res.json({ mensaje: 'Atleta actualizado correctamente', atleta })
+  } catch (err) { next(err) }
+}
+
 export const updateClub = async (req, res, next) => {
   try {
     const atleta = await AtletaModel.updateClub(req.params.id, req.body.club_id)

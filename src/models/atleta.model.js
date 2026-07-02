@@ -1,4 +1,5 @@
 import { pool } from '../config/db.js'
+import { actualizarDatosUsuario, actualizarClubEntidad } from './usuario.model.js'
 
 //Perfil completo del atleta logueado
 export const findByUsuarioId = async (usuarioId) => {
@@ -39,7 +40,7 @@ export const findAll = async ({ clubId, sinClub } = {}) => {
     `SELECT
       a.id, a.municipio, a.lugar_entrenamiento, a.fecha_ingreso_club,
       u.nombre, u.apellido_paterno, u.apellido_materno,
-      u.email, u.telefono, u.fecha_nacimiento,
+      u.email, u.telefono, u.fecha_nacimiento, u.curp, u.estado_nacimiento,
       DATE_PART('year', AGE(u.fecha_nacimiento))::int AS edad,
       g.nombre AS genero,
       c.id AS club_id, c.nombre AS club_nombre
@@ -61,6 +62,7 @@ export const findById = async (atletaId) => {
       a.id, a.municipio, a.lugar_entrenamiento, a.fecha_ingreso_club,
       u.nombre, u.apellido_paterno, u.apellido_materno,
       u.email, u.telefono, u.fecha_nacimiento, u.curp,
+      u.estado_nacimiento,
       DATE_PART('year', AGE(u.fecha_nacimiento))::int AS edad,
       g.nombre AS genero,
       c.id AS club_id, c.nombre AS club_nombre
@@ -93,17 +95,38 @@ export const updatePerfil = async (atletaId, usuarioId, { telefono, municipio, l
   }
 }
 
+//Actualizar datos generales del atleta (usado por admin: nombre, apellidos,
+//email, telefono, curp, fecha de nacimiento, estado de nacimiento, genero,
+//municipio y lugar de entrenamiento). El cambio de club sigue viviendo en
+//updateClub, no se duplica aqui.
+export const updateAdmin = async (atletaId, fields) => {
+  const { rows: atletaRows } = await pool.query(
+    `SELECT usuario_id FROM atletas WHERE id = $1`,
+    [atletaId]
+  )
+  const usuarioId = atletaRows[0]?.usuario_id
+  if (!usuarioId) return null
+
+  const { municipio, lugar_entrenamiento, ...datosUsuario } = fields
+
+  await actualizarDatosUsuario(usuarioId, datosUsuario)
+
+  if (municipio !== undefined || lugar_entrenamiento !== undefined) {
+    await pool.query(
+      `UPDATE atletas
+       SET municipio           = COALESCE($1, municipio),
+           lugar_entrenamiento = COALESCE($2, lugar_entrenamiento)
+       WHERE id = $3`,
+      [municipio ?? null, lugar_entrenamiento ?? null, atletaId]
+    )
+  }
+
+  return findById(atletaId)
+}
+
 //Asignar / quitar club a un atleta (usado por admin)
 export const updateClub = async (atletaId, clubId) => {
-  const { rows } = await pool.query(
-    `UPDATE atletas
-     SET club_id          = $1,
-         fecha_ingreso_club = CASE WHEN $1 IS NOT NULL THEN CURRENT_TIMESTAMP ELSE NULL END
-     WHERE id = $2
-     RETURNING *`,
-    [clubId ?? null, atletaId]
-  )
-  return rows[0] || null
+  return actualizarClubEntidad('atletas', atletaId, clubId)
 }
 
 //Eliminar atleta (verifica que no tenga resultados ni inscripciones)

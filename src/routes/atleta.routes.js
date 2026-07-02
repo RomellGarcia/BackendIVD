@@ -2,12 +2,14 @@ import { Router } from 'express'
 import * as AtletaController from '../controllers/atleta.controller.js'
 import { requireAuth }   from '../middlewares/auth.js'
 import { checkAtleta }   from '../middlewares/checkAtleta.js'
+import { checkAdmin }    from '../middlewares/checkAdmin.js'
 import { validate }      from '../middlewares/validate.js'
 import {
   updatePerfilAtletaSchema,
   solicitudClubSchema,
   procesarSolicitudSchema,
-  updateClubAtletaSchema
+  updateClubAtletaSchema,
+  updateAdminAtletaSchema
 } from '../schemas/atleta.schema.js'
 
 const router = Router()
@@ -22,6 +24,7 @@ router.put('/solicitudes-club/:id', requireAuth, validate(procesarSolicitudSchem
 //Rutas genericas
 router.get('/',     AtletaController.getAll)
 router.get('/:id',  AtletaController.getById)
+router.put('/:id',       requireAuth, checkAdmin, validate(updateAdminAtletaSchema), AtletaController.updateAdmin)
 router.put('/:id/club',  requireAuth, validate(updateClubAtletaSchema), AtletaController.updateClub)
 router.delete('/:id',    requireAuth, AtletaController.remove)
 
