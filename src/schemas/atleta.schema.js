@@ -1,7 +1,12 @@
 import { z } from 'zod'
 
 export const updatePerfilAtletaSchema = z.object({
+  nombre:              z.string().min(1).max(100).optional(),
+  apellido_paterno:    z.string().min(1).max(100).optional(),
+  apellido_materno:    z.string().max(100).optional(),
+  email:               z.string().email().optional(),
   telefono:            z.string().regex(/^\d{10}$/).optional(),
+  genero:              z.enum(['masculino', 'femenino', 'otro']).optional(),
   municipio:           z.string().max(100).optional(),
   lugar_entrenamiento: z.string().optional()
 })

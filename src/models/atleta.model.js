@@ -76,14 +76,11 @@ export const findById = async (atletaId) => {
   return rows[0] || null
 }
 
-//Actualizar datos del perfil del atleta
-export const updatePerfil = async (atletaId, usuarioId, { telefono, municipio, lugar_entrenamiento }) => {
-  if (telefono !== undefined) {
-    await pool.query(
-      `UPDATE usuarios SET telefono = $1 WHERE id = $2`,
-      [telefono, usuarioId]
-    )
-  }
+export const updatePerfil = async (atletaId, usuarioId, fields) => {
+  const { municipio, lugar_entrenamiento, ...datosUsuario } = fields
+
+  await actualizarDatosUsuario(usuarioId, datosUsuario)
+
   if (municipio !== undefined || lugar_entrenamiento !== undefined) {
     await pool.query(
       `UPDATE atletas
@@ -95,10 +92,6 @@ export const updatePerfil = async (atletaId, usuarioId, { telefono, municipio, l
   }
 }
 
-//Actualizar datos generales del atleta (usado por admin: nombre, apellidos,
-//email, telefono, curp, fecha de nacimiento, estado de nacimiento, genero,
-//municipio y lugar de entrenamiento). El cambio de club sigue viviendo en
-//updateClub, no se duplica aqui.
 export const updateAdmin = async (atletaId, fields) => {
   const { rows: atletaRows } = await pool.query(
     `SELECT usuario_id FROM atletas WHERE id = $1`,
@@ -193,7 +186,37 @@ export const crearSolicitudClub = async ({ atletaId, clubId, tipo }) => {
   return { solicitud: rows[0] }
 }
 
-export const findSolicitudesClub = async ({ clubId, atletaId } = {}) => {
+//NUEVO: invitación iniciada por el club hacia un atleta independiente.
+//Usa la misma tabla solicitudes_club, con tipo = 'invitacion' para
+//diferenciarla de las que crea el propio atleta (tipo = 'asociar').
+export const crearInvitacionClub = async ({ atletaId, clubId }) => {
+  const { rows: atletaRows } = await pool.query(
+    `SELECT usuario_id, club_id FROM atletas WHERE id = $1`,
+    [atletaId]
+  )
+  const atleta = atletaRows[0]
+  if (!atleta) return { error: 'Atleta no encontrado' }
+  if (atleta.club_id) return { error: 'El atleta ya pertenece a un club' }
+
+  const { rows: pendiente } = await pool.query(
+    `SELECT id FROM solicitudes_club
+     WHERE usuario_id = $1 AND club_id = $2 AND estado = 'pendiente'`,
+    [atleta.usuario_id, clubId]
+  )
+  if (pendiente.length > 0) return { error: 'Ya existe una invitación o solicitud pendiente con este atleta' }
+
+  const { rows } = await pool.query(
+    `INSERT INTO solicitudes_club (usuario_id, club_id, tipo, estado)
+     VALUES ($1, $2, 'invitacion', 'pendiente')
+     RETURNING *`,
+    [atleta.usuario_id, clubId]
+  )
+  return { solicitud: rows[0] }
+}
+
+//AJUSTE: filtro opcional por tipo ('asociar' | 'invitacion' | 'independiente')
+//para separar solicitudes recibidas de invitaciones enviadas por el club.
+export const findSolicitudesClub = async ({ clubId, atletaId, tipo } = {}) => {
   let where = 'WHERE 1=1'
   const params = []
 
@@ -205,16 +228,23 @@ export const findSolicitudesClub = async ({ clubId, atletaId } = {}) => {
     params.push(atletaId)
     where += ` AND a.id = $${params.length}`
   }
+  if (tipo) {
+    params.push(tipo)
+    where += ` AND sc.tipo = $${params.length}`
+  }
 
   const { rows } = await pool.query(
     `SELECT
       sc.id, sc.tipo, sc.estado, sc.mensaje, sc.fecha_solicitud,
-      u.nombre, u.apellido_paterno, u.apellido_materno, u.email,
+      u.nombre, u.apellido_paterno, u.apellido_materno, u.email, u.telefono,
+      DATE_PART('year', AGE(u.fecha_nacimiento))::int AS edad,
+      g.nombre AS genero,
       a.id AS atleta_id,
       c.id AS club_id, c.nombre AS club_nombre
      FROM solicitudes_club sc
      JOIN usuarios u     ON sc.usuario_id = u.id
      JOIN atletas a      ON a.usuario_id = u.id
+     LEFT JOIN generos g ON u.genero_id = g.id
      LEFT JOIN clubes c  ON sc.club_id = c.id
      ${where}
      ORDER BY sc.fecha_solicitud DESC`,
@@ -246,7 +276,7 @@ export const procesarSolicitudClub = async (solicitudId, estado) => {
     )
     const atletaId = atletaRows[0]?.id
 
-    if (solicitud.tipo === 'asociar' && solicitud.club_id) {
+    if ((solicitud.tipo === 'asociar' || solicitud.tipo === 'invitacion') && solicitud.club_id) {
       await pool.query(
         `UPDATE atletas
          SET club_id = $1, fecha_ingreso_club = CURRENT_TIMESTAMP

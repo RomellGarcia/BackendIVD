@@ -8,6 +8,7 @@ import {
   updateAdminEntrenadorSchema,
   updateClubEntrenadorSchema
 } from '../schemas/entrenadores.schema.js'
+import { checkClub } from '../middlewares/checkClub.js'
 
 const router = Router()
 
@@ -20,5 +21,7 @@ router.get('/solicitudes-club/:clubId', requireAuth, EntrenadoresController.getS
 router.put('/solicitudes/:solicitudId', requireAuth, validate(updateSolicitudSchema), EntrenadoresController.updateSolicitud)
 router.put('/:id',       requireAuth, checkAdmin, validate(updateAdminEntrenadorSchema), EntrenadoresController.updateAdmin)
 router.put('/:id/club',  requireAuth, checkAdmin, validate(updateClubEntrenadorSchema), EntrenadoresController.updateClub)
+router.post('/:id/invitar-club', requireAuth, checkClub, EntrenadoresController.invitarClub)
+router.get('/:id', requireAuth, EntrenadoresController.getById)
 
 export default router

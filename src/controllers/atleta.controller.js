@@ -70,12 +70,16 @@ export const crearSolicitudClub = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+//AJUSTE: se agrega el filtro opcional `tipo` para poder separar, del lado
+//del club, las solicitudes recibidas de atletas (tipo=asociar) de las
+//invitaciones que el propio club envió (tipo=invitacion).
 export const getSolicitudesClub = async (req, res, next) => {
   try {
-    const { club_id, atleta_id } = req.query
+    const { club_id, atleta_id, tipo } = req.query
     const solicitudes = await AtletaModel.findSolicitudesClub({
       clubId:   club_id   ? parseInt(club_id)   : undefined,
-      atletaId: atleta_id ? parseInt(atleta_id) : undefined
+      atletaId: atleta_id ? parseInt(atleta_id) : undefined,
+      tipo
     })
     res.json({ solicitudes })
   } catch (err) { next(err) }
@@ -86,5 +90,16 @@ export const procesarSolicitudClub = async (req, res, next) => {
     const result = await AtletaModel.procesarSolicitudClub(req.params.id, req.body.estado)
     if (result.error) return res.status(400).json({ error: result.error })
     res.json({ mensaje: 'Solicitud procesada correctamente' })
+  } catch (err) { next(err) }
+}
+
+export const invitarClub = async (req, res, next) => {
+  try {
+    const result = await AtletaModel.crearInvitacionClub({
+      atletaId: req.params.id,
+      clubId:   req.clubId
+    })
+    if (result.error) return res.status(400).json({ error: result.error })
+    res.status(201).json({ mensaje: 'Invitación enviada correctamente', solicitud: result.solicitud })
   } catch (err) { next(err) }
 }

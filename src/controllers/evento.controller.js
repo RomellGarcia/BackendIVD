@@ -89,3 +89,40 @@ export const getInscripcionesByAtleta = async (req, res, next) => {
     res.json({ inscripciones })
   } catch (err) { next(err) }
 }
+
+export const getConvocatoriasAbiertas = async (req, res, next) => {
+  try {
+    const convocatorias = await InscripcionModel.findConvocatoriasAbiertas()
+    res.json({ convocatorias })
+  } catch (err) { next(err) }
+}
+
+// Requiere que req.clubId venga del middleware checkClub
+export const inscribirAtletaClub = async (req, res, next) => {
+  try {
+    const perteneceAlClub = await InscripcionModel.atletaPerteneceAClub(req.body.atleta_id, req.clubId)
+    if (!perteneceAlClub) return res.status(403).json({ error: 'Ese atleta no pertenece a tu club' })
+
+    const resultado = await InscripcionModel.inscribir({
+      atletaId: req.body.atleta_id,
+      convocatoriaId: req.body.convocatoria_id
+    })
+    if (resultado.error) return res.status(400).json({ error: resultado.error })
+    res.status(201).json({ mensaje: 'Atleta inscrito correctamente', inscripcion: resultado.inscripcion })
+  } catch (err) { next(err) }
+}
+
+export const getInscripcionesByClub = async (req, res, next) => {
+  try {
+    const inscripciones = await InscripcionModel.findByClub(req.clubId)
+    res.json({ inscripciones })
+  } catch (err) { next(err) }
+}
+
+export const cancelarInscripcion = async (req, res, next) => {
+  try {
+    const resultado = await InscripcionModel.cancelar(req.params.id, req.atletaId)
+    if (resultado.error) return res.status(400).json({ error: resultado.error })
+    res.json({ mensaje: 'Inscripción cancelada correctamente' })
+  } catch (err) { next(err) }
+}

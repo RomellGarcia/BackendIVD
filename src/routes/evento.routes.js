@@ -3,6 +3,7 @@ import * as EventoController from '../controllers/evento.controller.js'
 import { requireAuth }   from '../middlewares/auth.js'
 import { checkAtleta }   from '../middlewares/checkAtleta.js'
 import { validate }      from '../middlewares/validate.js'
+import {checkClub} from '../middlewares/checkClub.js'
 import {
   createEventoSchema,
   addConvocatoriaSchema,
@@ -16,6 +17,11 @@ const router = Router()
 router.get('/mis-convocatorias',  requireAuth, checkAtleta, EventoController.getConvocatoriasParaAtleta)
 router.get('/mis-inscripciones',  requireAuth, checkAtleta, EventoController.getInscripcionesByAtleta)
 router.post('/inscripciones',     requireAuth, checkAtleta, validate(inscripcionSchema), EventoController.inscribir)
+
+router.get('/convocatorias-abiertas',    requireAuth, EventoController.getConvocatoriasAbiertas)
+router.get('/mis-inscripciones-club',    requireAuth, checkClub, EventoController.getInscripcionesByClub)
+router.post('/inscripciones/club',       requireAuth, checkClub, EventoController.inscribirAtletaClub)
+router.delete('/inscripciones/:id', requireAuth, checkAtleta, EventoController.cancelarInscripcion)
 
 //Rutas genericas
 router.get('/',    EventoController.getAll)
