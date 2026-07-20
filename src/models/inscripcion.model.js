@@ -1,5 +1,7 @@
 import { pool } from '../config/db.js'
+import * as NotificacionModel from './notificacion.model.js'
 
+//Convocatorias disponibles para un atleta según su edad y género
 //Convocatorias disponibles para un atleta según su edad y género
 export const findConvocatoriasParaAtleta = async (atletaId) => {
   const { rows } = await pool.query(
@@ -11,11 +13,12 @@ export const findConvocatoriasParaAtleta = async (atletaId) => {
       e.lugar,
       e.descripcion,
       e.fecha_cierre,
+      e.documento_convocatoria_url AS "documentoConvocatoria",
+      e.documento_deslinde_url    AS "documentoDeslinde",
       c.id        AS convocatoria_id,
       d.nombre    AS disciplina,
       cat.nombre  AS categoria,
-      cat.edad_min,
-      cat.edad_max,
+      cat.edad_min, cat.edad_max,
       g.nombre    AS genero
      FROM atletas a
      JOIN usuarios u          ON a.usuario_id = u.id
@@ -28,8 +31,6 @@ export const findConvocatoriasParaAtleta = async (atletaId) => {
        AND e.estado = true
        AND c.estado = true
        AND e.fecha_cierre > NOW()
-       AND DATE_PART('year', AGE(u.fecha_nacimiento))
-           BETWEEN cat.edad_min AND cat.edad_max
      ORDER BY e.fecha ASC`,
     [atletaId]
   )
@@ -69,12 +70,15 @@ export const inscribir = async ({ atletaId, convocatoriaId }) => {
 }
 
 //Inscripciones de un atleta
+//Inscripciones de un atleta
 export const findByAtleta = async (atletaId) => {
   const { rows } = await pool.query(
     `SELECT
       i.id, i.fecha_inscripcion, i.validado,
       c.id AS convocatoria_id,
       e.id AS evento_id, e.titulo, e.fecha, e.lugar,
+      e.documento_convocatoria_url AS "documentoConvocatoria",
+      e.documento_deslinde_url    AS "documentoDeslinde",
       d.nombre AS disciplina,
       cat.nombre AS categoria,
       g.nombre AS genero
@@ -204,4 +208,56 @@ export const cancelar = async (inscripcionId, atletaId) => {
   }
   await pool.query(`DELETE FROM inscripciones WHERE id = $1`, [inscripcionId])
   return { ok: true }
+}
+
+//Dar de baja a un atleta de una convocatoria (acción del ADMIN, no del
+//propio atleta). A diferencia de cancelar(), no valida quién es el dueño
+//ni bloquea eventos ya pasados -- el admin puede hacerlo siempre.
+export const removerPorAdmin = async (inscripcionId) => {
+  const { rows } = await pool.query(
+    `SELECT i.id, a.usuario_id, e.titulo AS evento_titulo, d.nombre AS disciplina, cat.nombre AS categoria
+     FROM inscripciones i
+     JOIN convocatorias c ON i.convocatoria_id = c.id
+     JOIN eventos e       ON c.evento_id = e.id
+     JOIN disciplinas d   ON c.disciplina_id = d.id
+     JOIN categorias cat  ON c.categoria_id = cat.id
+     JOIN atletas a       ON i.atleta_id = a.id
+     WHERE i.id = $1`,
+    [inscripcionId]
+  )
+  const inscripcion = rows[0]
+  if (!inscripcion) return { error: 'Inscripción no encontrada' }
+
+  await pool.query(`DELETE FROM inscripciones WHERE id = $1`, [inscripcionId])
+
+  const mensaje = `Fuiste dado de baja de "${inscripcion.disciplina} - ${inscripcion.categoria}" del evento "${inscripcion.evento_titulo}" por un administrador.`
+  await NotificacionModel.crear(inscripcion.usuario_id, mensaje)
+
+  return { ok: true }
+}
+
+//Participantes de UNA convocatoria específica (no de todo el evento)
+export const findByConvocatoria = async (convocatoriaId) => {
+  const { rows } = await pool.query(
+    `SELECT
+      i.id, i.fecha_inscripcion, i.validado,
+      u.nombre, u.apellido_paterno, u.apellido_materno,
+      u.email, u.telefono,
+      DATE_PART('year', AGE(u.fecha_nacimiento))::int AS edad,
+      g.nombre AS genero,
+      d.nombre AS disciplina,
+      cat.nombre AS categoria,
+      c.id AS convocatoria_id
+     FROM inscripciones i
+     JOIN atletas a       ON i.atleta_id = a.id
+     JOIN usuarios u      ON a.usuario_id = u.id
+     JOIN generos g       ON u.genero_id = g.id
+     JOIN convocatorias c ON i.convocatoria_id = c.id
+     JOIN disciplinas d   ON c.disciplina_id = d.id
+     JOIN categorias cat  ON c.categoria_id = cat.id
+     WHERE c.id = $1
+     ORDER BY i.fecha_inscripcion ASC`,
+    [convocatoriaId]
+  )
+  return rows
 }

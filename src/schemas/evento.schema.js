@@ -25,3 +25,15 @@ export const updateFechaCierreSchema = z.object({
 export const inscripcionSchema = z.object({
   convocatoria_id: z.number().int().positive()
 })
+
+// Todos los campos opcionales (se puede editar solo disciplina, solo
+// categoría, o las tres), pero se exige al menos uno para evitar
+// llamadas vacías.
+export const updateConvocatoriaSchema = z.object({
+  disciplina_id: z.number().int().positive().optional(),
+  categoria_id:  z.number().int().positive().optional(),
+  genero_id:     z.number().int().positive().optional(),
+}).refine(
+  (data) => data.disciplina_id || data.categoria_id || data.genero_id,
+  { message: 'Debes enviar al menos un campo para actualizar' }
+)

@@ -8,6 +8,9 @@ import eventoRoutes            from './evento.routes.js'
 import resultadoRoutes         from './resultado.routes.js'
 import contenidoEstaticoRoutes from './contenidoEstatico.routes.js'
 import perfilEmpresaRoutes     from './perfilEmpresa.routes.js'
+import catalogosRoutes from './catalogos.routes.js'
+import notificacionRoutes from './notificacion.routes.js'
+import recuperarRoutes from './recuperarPassword.routes.js'
 
 const router = Router()
 
@@ -20,5 +23,9 @@ router.use('/eventos',        eventoRoutes)
 router.use('/resultados',     resultadoRoutes)
 router.use('/contenido',      contenidoEstaticoRoutes)
 router.use('/perfil-empresa', perfilEmpresaRoutes)
+router.use('/catalogos', catalogosRoutes)
+router.use('/notificaciones', notificacionRoutes)
+router.use('/recuperar', recuperarRoutes)
+
 
 export { router }
