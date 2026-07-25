@@ -1,8 +1,6 @@
 import { pool } from '../config/db.js'
 import * as NotificacionModel from './notificacion.model.js'
 
-//Convocatorias disponibles para un atleta según su edad y género
-//Convocatorias disponibles para un atleta según su edad y género
 export const findConvocatoriasParaAtleta = async (atletaId) => {
   const { rows } = await pool.query(
     `SELECT
@@ -13,6 +11,7 @@ export const findConvocatoriasParaAtleta = async (atletaId) => {
       e.lugar,
       e.descripcion,
       e.fecha_cierre,
+      e.imagen_url,
       e.documento_convocatoria_url AS "documentoConvocatoria",
       e.documento_deslinde_url    AS "documentoDeslinde",
       c.id        AS convocatoria_id,
@@ -37,7 +36,37 @@ export const findConvocatoriasParaAtleta = async (atletaId) => {
   return rows
 }
 
+export const findByClub = async (clubId) => {
+  const { rows } = await pool.query(
+    `SELECT
+      i.id, i.fecha_inscripcion, i.validado, i.bib,
+      c.id AS convocatoria_id, c.estado AS convocatoria_estado,
+      e.id AS evento_id, e.titulo, e.fecha, e.hora, e.lugar, e.descripcion, e.fecha_cierre,
+      e.finalizado AS evento_finalizado,
+      e.imagen_url,
+      e.documento_convocatoria_url AS "documentoConvocatoria",
+      d.nombre AS disciplina,
+      cat.nombre AS categoria,
+      g.nombre AS genero,
+      a.id AS atleta_id,
+      u.nombre, u.apellido_paterno, u.apellido_materno
+     FROM inscripciones i
+     JOIN atletas a       ON i.atleta_id = a.id
+     JOIN usuarios u      ON a.usuario_id = u.id
+     JOIN convocatorias c ON i.convocatoria_id = c.id
+     JOIN eventos e       ON c.evento_id = e.id
+     JOIN disciplinas d   ON c.disciplina_id = d.id
+     JOIN categorias cat  ON c.categoria_id = cat.id
+     JOIN generos g       ON c.genero_id = g.id
+     WHERE a.club_id = $1
+     ORDER BY e.fecha DESC`,
+    [clubId]
+  )
+  return rows
+}
 //Inscribir atleta a convocatoria
+//Inscribir atleta a convocatoria — le asigna un Bib aleatorio único
+//dentro de esa convocatoria (1-999, formateado con ceros al mostrarlo)
 export const inscribir = async ({ atletaId, convocatoriaId }) => {
   //Verificar que la convocatoria existe y el evento sigue abierto
   const { rows: convRows } = await pool.query(
@@ -60,21 +89,34 @@ export const inscribir = async ({ atletaId, convocatoriaId }) => {
   )
   if (yaInscrito.length > 0) return { error: 'Ya estás inscrito en esta convocatoria' }
 
+  //Asignar un Bib aleatorio único dentro de esta convocatoria (1-999)
+  let bib = null
+  for (let intento = 0; intento < 30; intento++) {
+    const candidato = Math.floor(Math.random() * 999) + 1
+    const { rows: existe } = await pool.query(
+      `SELECT id FROM inscripciones WHERE convocatoria_id = $1 AND bib = $2`,
+      [convocatoriaId, candidato]
+    )
+    if (existe.length === 0) { bib = candidato; break }
+  }
+  if (bib === null) {
+    return { error: 'No hay números de corredor disponibles para esta convocatoria (límite de 999 alcanzado)' }
+  }
+
   const { rows } = await pool.query(
-    `INSERT INTO inscripciones (atleta_id, convocatoria_id, validado)
-     VALUES ($1, $2, true)
+    `INSERT INTO inscripciones (atleta_id, convocatoria_id, validado, bib)
+     VALUES ($1, $2, true, $3)
      RETURNING *`,
-    [atletaId, convocatoriaId]
+    [atletaId, convocatoriaId, bib]
   )
   return { inscripcion: rows[0] }
 }
-
 //Inscripciones de un atleta
 //Inscripciones de un atleta
 export const findByAtleta = async (atletaId) => {
   const { rows } = await pool.query(
     `SELECT
-      i.id, i.fecha_inscripcion, i.validado,
+      i.id, i.fecha_inscripcion, i.validado, i.bib,
       c.id AS convocatoria_id,
       e.id AS evento_id, e.titulo, e.fecha, e.lugar,
       e.documento_convocatoria_url AS "documentoConvocatoria",
@@ -99,7 +141,7 @@ export const findByAtleta = async (atletaId) => {
 export const findByEvento = async (eventoId) => {
   const { rows } = await pool.query(
     `SELECT
-      i.id, i.fecha_inscripcion, i.validado,
+      i.id, i.fecha_inscripcion, i.validado, i.bib,
       u.nombre, u.apellido_paterno, u.apellido_materno,
       u.email, u.telefono,
       DATE_PART('year', AGE(u.fecha_nacimiento))::int AS edad,
@@ -130,38 +172,7 @@ export const atletaPerteneceAClub = async (atletaId, clubId) => {
   )
   return rows.length > 0
 }
-//Todas las inscripciones de los atletas de un club (para "Mis Convocatorias" del lado del club: a qué atletas registró y en qué)
-export const findByClub = async (clubId) => {
-  const { rows } = await pool.query(
-    `SELECT
-      i.id, i.fecha_inscripcion, i.validado,
-      c.id AS convocatoria_id,
-      e.id AS evento_id, e.titulo, e.fecha, e.lugar, e.fecha_cierre,
-      d.nombre AS disciplina,
-      cat.nombre AS categoria,
-      g.nombre AS genero,
-      a.id AS atleta_id,
-      u.nombre, u.apellido_paterno, u.apellido_materno
-     FROM inscripciones i
-     JOIN atletas a       ON i.atleta_id = a.id
-     JOIN usuarios u      ON a.usuario_id = u.id
-     JOIN convocatorias c ON i.convocatoria_id = c.id
-     JOIN eventos e       ON c.evento_id = e.id
-     JOIN disciplinas d   ON c.disciplina_id = d.id
-     JOIN categorias cat  ON c.categoria_id = cat.id
-     JOIN generos g       ON c.genero_id = g.id
-     WHERE a.club_id = $1
-     ORDER BY e.fecha DESC`,
-    [clubId]
-  )
-  return rows
-}
 
-//Todas las convocatorias abiertas con edad y género — para que un club
-//elija a cuál de sus atletas inscribir en cada una (a diferencia de
-//findConvocatoriasParaAtleta, aquí no hay UN atleta cuya edad/género usar,
-//así que se listan todas y el filtrado por elegibilidad se hace por atleta
-//al momento de elegir a quién inscribir).
 export const findConvocatoriasAbiertas = async () => {
   const { rows } = await pool.query(
     `SELECT
@@ -236,18 +247,20 @@ export const removerPorAdmin = async (inscripcionId) => {
   return { ok: true }
 }
 
-//Participantes de UNA convocatoria específica (no de todo el evento)
 export const findByConvocatoria = async (convocatoriaId) => {
   const { rows } = await pool.query(
     `SELECT
-      i.id, i.fecha_inscripcion, i.validado,
+      i.id, i.fecha_inscripcion, i.validado, i.bib,
+      a.id AS atleta_id,
       u.nombre, u.apellido_paterno, u.apellido_materno,
       u.email, u.telefono,
       DATE_PART('year', AGE(u.fecha_nacimiento))::int AS edad,
       g.nombre AS genero,
       d.nombre AS disciplina,
       cat.nombre AS categoria,
-      c.id AS convocatoria_id
+      c.id AS convocatoria_id,
+      cl.id AS club_id,
+      cl.nombre AS club_nombre
      FROM inscripciones i
      JOIN atletas a       ON i.atleta_id = a.id
      JOIN usuarios u      ON a.usuario_id = u.id
@@ -255,8 +268,9 @@ export const findByConvocatoria = async (convocatoriaId) => {
      JOIN convocatorias c ON i.convocatoria_id = c.id
      JOIN disciplinas d   ON c.disciplina_id = d.id
      JOIN categorias cat  ON c.categoria_id = cat.id
+     LEFT JOIN clubes cl  ON a.club_id = cl.id
      WHERE c.id = $1
-     ORDER BY i.fecha_inscripcion ASC`,
+     ORDER BY i.bib ASC`,
     [convocatoriaId]
   )
   return rows

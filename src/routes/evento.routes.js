@@ -16,10 +16,7 @@ import { checkAdmin } from '../middlewares/checkAdmin.js'
 
 const router = Router()
 
-// El FormData (por los archivos adjuntos) manda "convocatorias" como texto
-// JSON, no como arreglo real — hay que convertirlo ANTES de que el schema
-// de Zod lo revise, si no, z.array() siempre lo rechaza sin importar el
-// contenido.
+
 const parseConvocatorias = (req, res, next) => {
   if (typeof req.body.convocatorias === 'string') {
     try {
@@ -54,6 +51,7 @@ router.post('/:id/convocatorias', requireAuth, validate(addConvocatoriaSchema), 
 router.put('/:id/fecha-cierre',   requireAuth, validate(updateFechaCierreSchema), EventoController.updateFechaCierre)
 router.put('/:id',                              requireAuth, checkAdmin, EventoController.update)
 router.put('/:id/estado',                        requireAuth, checkAdmin, EventoController.toggleEstado)
+router.patch('/:id/finalizar',                   requireAuth, checkAdmin, EventoController.toggleFinalizadoEvento)
 router.delete('/:id',                             requireAuth, checkAdmin, EventoController.deleteEvento)
 router.delete('/convocatorias/:convocatoriaId',   requireAuth, checkAdmin, EventoController.deleteConvocatoria)
 router.delete('/participantes/:inscripcionId',    requireAuth, checkAdmin, EventoController.removerAtletaDeConvocatoria)
@@ -65,5 +63,7 @@ router.delete('/convocatorias/:convocatoriaId/resultado', requireAuth, checkAdmi
 
 router.get('/convocatorias/:convocatoriaId/participantes', EventoController.getParticipantesPorConvocatoria)
 router.put('/convocatorias/:convocatoriaId', requireAuth, checkAdmin, validate(updateConvocatoriaSchema), EventoController.updateConvocatoria)
+
+router.patch('/convocatorias/:convocatoriaId/estado', requireAuth, checkAdmin, EventoController.toggleEstadoConvocatoria)
 
 export default router

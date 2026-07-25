@@ -132,6 +132,16 @@ export const toggleEstado = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Finalizar/reabrir el evento (distinto de toggleEstado, que es para
+// cancelar/activar). Al finalizar, cierra en cascada sus convocatorias.
+export const toggleFinalizadoEvento = async (req, res, next) => {
+  try {
+    const evento = await EventoModel.toggleFinalizadoEvento(req.params.id, req.body.finalizado)
+    if (!evento) return res.status(404).json({ error: 'Evento no encontrado' })
+    res.json({ mensaje: 'Evento actualizado', evento })
+  } catch (err) { next(err) }
+}
+
 // Eliminar una convocatoria (saca y notifica a los inscritos)
 export const deleteConvocatoria = async (req, res, next) => {
   try {
@@ -156,15 +166,6 @@ export const deleteEvento = async (req, res, next) => {
     ])
 
     res.json({ mensaje: 'Evento eliminado', atletasAfectados: resultado.atletasAfectados })
-  } catch (err) { next(err) }
-}
-
-export const addConvocatoria = async (req, res, next) => {
-  try {
-    const evento = await EventoModel.findById(req.params.id)
-    if (!evento) return res.status(404).json({ error: 'Evento no encontrado' })
-    const convocatoria = await EventoModel.addConvocatoria(req.params.id, req.body)
-    res.status(201).json({ convocatoria })
   } catch (err) { next(err) }
 }
 
@@ -305,11 +306,32 @@ export const getParticipantesPorConvocatoria = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// Editar disciplina/categoría/género de una convocatoria (sin borrarla)
+export const addConvocatoria = async (req, res, next) => {
+  try {
+    const evento = await EventoModel.findById(req.params.id)
+    if (!evento) return res.status(404).json({ error: 'Evento no encontrado' })
+    const convocatoria = await EventoModel.addConvocatoria(req.params.id, req.body)
+    if (convocatoria.error) return res.status(400).json({ error: convocatoria.error })
+    res.status(201).json({ convocatoria })
+  } catch (err) { next(err) }
+}
+
 export const updateConvocatoria = async (req, res, next) => {
   try {
     const actualizada = await EventoModel.updateConvocatoria(req.params.convocatoriaId, req.body)
     if (!actualizada) return res.status(404).json({ error: 'Convocatoria no encontrada' })
+    if (actualizada.error) return res.status(400).json({ error: actualizada.error })
     res.json({ mensaje: 'Convocatoria actualizada', convocatoria: actualizada })
+  } catch (err) { next(err) }
+}
+
+// Finalizar/reabrir una convocatoria (no la borra, solo cambia si aparece
+// como disponible para los atletas). req.body.estado: true = abierta/reabrir,
+// false = finalizada.
+export const toggleEstadoConvocatoria = async (req, res, next) => {
+  try {
+    const convocatoria = await EventoModel.toggleEstadoConvocatoria(req.params.convocatoriaId, req.body.estado)
+    if (!convocatoria) return res.status(404).json({ error: 'Convocatoria no encontrada' })
+    res.json({ mensaje: 'Estado de la convocatoria actualizado', convocatoria })
   } catch (err) { next(err) }
 }

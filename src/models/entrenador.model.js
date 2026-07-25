@@ -36,6 +36,7 @@ export const findByUsuarioId = async (usuarioId) => {
 export const findAtletasByEntrenador = async (entrenadorId) => {
   const { rows } = await pool.query(
     `SELECT
+      a.id AS atleta_id,
       u.id, u.nombre, u.apellido_paterno, u.apellido_materno,
       u.email, u.telefono, u.fecha_nacimiento,
       g.nombre AS genero,

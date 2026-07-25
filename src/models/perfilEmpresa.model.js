@@ -35,8 +35,8 @@ export const update = async ({ nombre_empresa, eslogan, direccion, correo, telef
     //Actualizar datos del perfil
     const { rows } = await client.query(
       `UPDATE perfil_empresa
-       SET nombre_empresa    = $1,
-           eslogan           = $2,
+       SET nombre_empresa    = COALESCE($1, nombre_empresa),
+           eslogan           = COALESCE($2, eslogan),
            direccion         = $3,
            correo            = $4,
            telefono          = $5,
@@ -44,7 +44,7 @@ export const update = async ({ nombre_empresa, eslogan, direccion, correo, telef
            fecha_actualizacion = CURRENT_TIMESTAMP
        WHERE id = $7
        RETURNING *`,
-      [nombre_empresa, eslogan, direccion, correo, telefono, mostrar_whatsapp, empresaId]
+      [nombre_empresa ?? null, eslogan ?? null, direccion, correo, telefono, mostrar_whatsapp, empresaId]
     )
 
     // Actualizar redes sociales: borrar y reinsertar

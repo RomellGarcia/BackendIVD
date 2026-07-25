@@ -1,6 +1,6 @@
 import { pool } from '../config/db.js'
 import * as NotificacionModel from './notificacion.model.js'
-import { sendConvocatoriaCanceladaEmail, sendEventoCanceladoEmail } from '../services/email.service.js'
+import { sendConvocatoriaCanceladaEmail, sendEventoCanceladoEmail, sendConvocatoriaCanceladaClubEmail, sendEventoCanceladoClubEmail, sendConvocatoriaFinalizadaEmail, sendEventoFinalizadoEmail, sendConvocatoriaFinalizadaClubEmail, sendEventoFinalizadoClubEmail } from '../services/email.service.js'
 
 //Todos los eventos activos
 //Eventos. Por default solo trae los activos (para atletas/clubes); el
@@ -9,7 +9,7 @@ export const findAll = async (limit, todos = false) => {
   const query = `
     SELECT
       e.id, e.titulo, e.fecha, e.hora, e.lugar,
-      e.descripcion, e.fecha_cierre, e.estado, e.imagen_url, e.created_at,
+      e.descripcion, e.fecha_cierre, e.estado, e.finalizado, e.imagen_url, e.created_at,
       e.documento_convocatoria_url AS "documentoConvocatoria",
       e.documento_deslinde_url    AS "documentoDeslinde",
       COALESCE(
@@ -44,7 +44,7 @@ export const findById = async (id) => {
   const { rows } = await pool.query(
     `SELECT
       e.id, e.titulo, e.fecha, e.hora, e.lugar,
-      e.descripcion, e.fecha_cierre, e.estado, e.imagen_url, e.created_at,
+      e.descripcion, e.fecha_cierre, e.estado, e.finalizado, e.imagen_url, e.created_at,
       e.documento_convocatoria_url AS "documentoConvocatoria",
       e.documento_deslinde_url    AS "documentoDeslinde",
       COALESCE(
@@ -114,18 +114,6 @@ export const create = async ({
     client.release()
   }
 }
-
-//Agregar convocatoria a evento existente
-export const addConvocatoria = async (eventoId, { disciplina_id, categoria_id, genero_id }) => {
-  const { rows } = await pool.query(
-    `INSERT INTO convocatorias (evento_id, disciplina_id, categoria_id, genero_id)
-     VALUES ($1, $2, $3, $4)
-     RETURNING *`,
-    [eventoId, disciplina_id, categoria_id, genero_id]
-  )
-  return rows[0]
-}
-
 //Actualizar fecha de cierre
 export const updateFechaCierre = async (id, fecha_cierre) => {
   const { rows } = await pool.query(
@@ -333,12 +321,14 @@ export const removeConvocatoria = async (convocatoriaId) => {
         }).catch(err => console.error('Error al enviar correo a atleta:', err.message))
       }
       for (const club of clubesUnicos) {
-        sendConvocatoriaCanceladaEmail({
+        const atletasDelClub = inscritos.filter(i => i.club_id === club.club_id).map(i => i.nombre)
+        sendConvocatoriaCanceladaClubEmail({
           to: club.club_email,
-          nombre: club.club_nombre,
+          clubNombre: club.club_nombre,
           disciplina: convocatoria.disciplina,
           categoria: convocatoria.categoria,
           eventoTitulo: convocatoria.evento_titulo,
+          atletas: atletasDelClub,
         }).catch(err => console.error('Error al enviar correo a club:', err.message))
       }
     }
@@ -411,10 +401,12 @@ export const remove = async (id) => {
         }).catch(err => console.error('Error al enviar correo a atleta:', err.message))
       }
       for (const club of clubesUnicos) {
-        sendEventoCanceladoEmail({
+        const atletasDelClub = inscritos.filter(i => i.club_id === club.club_id).map(i => i.nombre)
+        sendEventoCanceladoClubEmail({
           to: club.club_email,
-          nombre: club.club_nombre,
+          clubNombre: club.club_nombre,
           eventoTitulo: evento.titulo,
+          atletas: atletasDelClub,
         }).catch(err => console.error('Error al enviar correo a club:', err.message))
       }
     }
@@ -436,20 +428,54 @@ export const remove = async (id) => {
   }
 }
 
-//AGREGAR AL FINAL DE evento.model.js
+//Chequeo interno: ¿ya existe una convocatoria con esta misma
+//disciplina+categoría+género en este evento? (excluyendo, opcionalmente,
+//una convocatoria específica — para permitir editar sin chocar consigo misma)
+const existeConvocatoriaDuplicada = async (evento_id, disciplina_id, categoria_id, genero_id, excluirId = null) => {
+  const params = [evento_id, disciplina_id, categoria_id, genero_id]
+  let query = `SELECT id FROM convocatorias WHERE evento_id = $1 AND disciplina_id = $2 AND categoria_id = $3 AND genero_id = $4`
+  if (excluirId) {
+    params.push(excluirId)
+    query += ` AND id != $5`
+  }
+  const { rows } = await pool.query(query, params)
+  return rows.length > 0
+}
 
-//Actualizar disciplina/categoría/género de una convocatoria existente
-//(sin borrarla ni afectar sus inscripciones). Los campos no enviados
-//conservan su valor actual gracias al COALESCE.
-export const updateConvocatoria = async (convocatoriaId, { disciplina_id, categoria_id, genero_id }) => {
+//Agregar convocatoria a un evento existente
+export const addConvocatoria = async (eventoId, { disciplina_id, categoria_id, genero_id, hora }) => {
+  if (await existeConvocatoriaDuplicada(eventoId, disciplina_id, categoria_id, genero_id)) {
+    return { error: 'Ya existe una convocatoria con esa disciplina, categoría y género para este evento.' }
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO convocatorias (evento_id, disciplina_id, categoria_id, genero_id, hora)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING *`,
+    [eventoId, disciplina_id, categoria_id, genero_id, hora || null]
+  )
+  return rows[0]
+}
+
+//Actualizar disciplina/categoría/género/hora de una convocatoria existente
+export const updateConvocatoria = async (convocatoriaId, { disciplina_id, categoria_id, genero_id, hora }) => {
+  const { rows: actual } = await pool.query(`SELECT evento_id FROM convocatorias WHERE id = $1`, [convocatoriaId])
+  if (!actual[0]) return null
+
+  if (disciplina_id && categoria_id && genero_id) {
+    if (await existeConvocatoriaDuplicada(actual[0].evento_id, disciplina_id, categoria_id, genero_id, convocatoriaId)) {
+      return { error: 'Ya existe otra convocatoria con esa disciplina, categoría y género para este evento.' }
+    }
+  }
+
   const { rows } = await pool.query(
     `UPDATE convocatorias SET
        disciplina_id = COALESCE($1, disciplina_id),
        categoria_id  = COALESCE($2, categoria_id),
-       genero_id     = COALESCE($3, genero_id)
-     WHERE id = $4
+       genero_id     = COALESCE($3, genero_id),
+       hora          = COALESCE($4, hora)
+     WHERE id = $5
      RETURNING id`,
-    [disciplina_id ?? null, categoria_id ?? null, genero_id ?? null, convocatoriaId]
+    [disciplina_id ?? null, categoria_id ?? null, genero_id ?? null, hora ?? null, convocatoriaId]
   )
   if (!rows[0]) return null
 
@@ -460,7 +486,7 @@ export const updateConvocatoria = async (convocatoriaId, { disciplina_id, catego
       c.categoria_id,  cat.nombre AS categoria,
       cat.edad_min AS "edadMin", cat.edad_max AS "edadMax",
       c.genero_id,     g.nombre AS genero,
-      c.estado
+      c.estado, c.hora
      FROM convocatorias c
      JOIN disciplinas d  ON c.disciplina_id = d.id
      JOIN categorias cat ON c.categoria_id = cat.id
@@ -469,4 +495,187 @@ export const updateConvocatoria = async (convocatoriaId, { disciplina_id, catego
     [convocatoriaId]
   )
   return joined[0]
+}
+// "Finalizar" una convocatoria: reutiliza la misma columna `estado` que ya
+// se usa para saber si acepta inscripciones (ver findConvocatoriasParaAtleta,
+// que ya filtra `c.estado = true`). Al poner estado = false, la convocatoria
+// deja de salir como disponible para atletas SIN borrar nada: el evento,
+// las inscripciones, los resultados y el documento oficial siguen intactos
+// y consultables por el admin. estado = true la reabre.
+//
+// Cascada hacia arriba: si al cerrar esta convocatoria ya no queda NINGUNA
+// abierta en el evento, el evento se marca `finalizado` automáticamente
+// (mismo campo que usa toggleFinalizadoEvento). Al reabrir una convocatoria
+// NO se reabre el evento solo — eso el admin lo decide aparte con el botón
+// de finalizar/reabrir evento.
+export const toggleEstadoConvocatoria = async (convocatoriaId, estado) => {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    const { rows } = await client.query(
+      `UPDATE convocatorias SET estado = $1 WHERE id = $2 RETURNING *`,
+      [estado, convocatoriaId]
+    )
+    const convocatoria = rows[0]
+    if (!convocatoria) { await client.query('ROLLBACK'); return null }
+
+    let datosParaEmail = null
+
+    if (estado === false) {
+      const { rows: abiertas } = await client.query(
+        `SELECT id FROM convocatorias WHERE evento_id = $1 AND estado = true`,
+        [convocatoria.evento_id]
+      )
+      if (abiertas.length === 0) {
+        await client.query(`UPDATE eventos SET finalizado = true WHERE id = $1`, [convocatoria.evento_id])
+      }
+
+      // Avisar a los inscritos de que su convocatoria finalizó.
+      const { rows: datos } = await client.query(
+        `SELECT e.titulo AS evento_titulo, d.nombre AS disciplina, cat.nombre AS categoria
+         FROM eventos e
+         JOIN disciplinas d  ON d.id = $1
+         JOIN categorias cat ON cat.id = $2
+         WHERE e.id = $3`,
+        [convocatoria.disciplina_id, convocatoria.categoria_id, convocatoria.evento_id]
+      )
+      const { rows: inscritos } = await client.query(
+        `SELECT DISTINCT u.id AS usuario_id, u.nombre, u.email,
+                cl.id AS club_id, cl.email AS club_email, cl.nombre AS club_nombre
+         FROM inscripciones i
+         JOIN atletas a       ON i.atleta_id = a.id
+         JOIN usuarios u      ON a.usuario_id = u.id
+         LEFT JOIN clubes cl  ON a.club_id = cl.id
+         WHERE i.convocatoria_id = $1`,
+        [convocatoriaId]
+      )
+      if (inscritos.length > 0 && datos[0]) {
+        const { evento_titulo, disciplina, categoria } = datos[0]
+        const mensaje = `La convocatoria "${disciplina} - ${categoria}" del evento "${evento_titulo}" ha finalizado.`
+        await NotificacionModel.crearParaVarios(inscritos.map((i) => i.usuario_id), mensaje)
+
+        const clubesUnicos = [...new Map(
+          inscritos.filter((i) => i.club_id).map((i) => [i.club_id, i])
+        ).values()]
+        if (clubesUnicos.length > 0) {
+          const mensajeClub = `La convocatoria "${disciplina} - ${categoria}" del evento "${evento_titulo}" ha finalizado.`
+          for (const club of clubesUnicos) {
+            await NotificacionModel.crearParaClub(club.club_id, mensajeClub)
+          }
+        }
+
+        datosParaEmail = { evento_titulo, disciplina, categoria, inscritos, clubesUnicos }
+      }
+    }
+
+    await client.query('COMMIT')
+
+    if (datosParaEmail) {
+      const { evento_titulo, disciplina, categoria, inscritos, clubesUnicos } = datosParaEmail
+      for (const u of inscritos) {
+        await sendConvocatoriaFinalizadaEmail({
+          to: u.email, nombre: u.nombre, disciplina, categoria, eventoTitulo: evento_titulo,
+        }).catch((err) => console.error(`No se pudo enviar el correo de convocatoria finalizada a ${u.email}:`, err))
+      }
+      for (const club of clubesUnicos) {
+        const atletasDelClub = inscritos.filter((i) => i.club_id === club.club_id).map((i) => i.nombre)
+        await sendConvocatoriaFinalizadaClubEmail({
+          to: club.club_email, clubNombre: club.club_nombre, disciplina, categoria, eventoTitulo: evento_titulo,
+          atletas: atletasDelClub,
+        }).catch((err) => console.error(`No se pudo enviar el correo de convocatoria finalizada al club ${club.club_email}:`, err))
+      }
+    }
+
+    return convocatoria
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+// Finaliza (o reabre) un evento manualmente. Al finalizar, en la MISMA
+// transacción se cierran también todas sus convocatorias (estado = false)
+// para que dejen de aparecer como disponibles para inscribirse — igual
+// que ya pasa cuando se finaliza una convocatoria individual desde
+// GestionResultados. Al reabrir (finalizado = false) NO se reabren las
+// convocatorias automáticamente: el admin las reabre una por una si
+// hace falta, para no reactivar por accidente inscripciones vencidas.
+//
+// Nota: un evento también se considera "terminado" automáticamente en el
+// frontend cuando su `fecha` ya pasó, sin necesidad de este flag — este
+// campo es solo para cuando el admin quiere cerrarlo ANTES de esa fecha
+// (o reabrirlo). Requiere la columna `finalizado boolean default false`
+// en la tabla `eventos` (migración pendiente, ver mensaje aparte).
+export const toggleFinalizadoEvento = async (eventoId, finalizado) => {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    const { rows } = await client.query(
+      `UPDATE eventos SET finalizado = $1 WHERE id = $2 RETURNING *`,
+      [finalizado, eventoId]
+    )
+    if (!rows[0]) { await client.query('ROLLBACK'); return null }
+
+    let inscritosParaEmail = null
+    let clubesParaEmail = null
+
+    if (finalizado) {
+      await client.query(`UPDATE convocatorias SET estado = false WHERE evento_id = $1`, [eventoId])
+
+      // Avisar a todos los inscritos (en cualquiera de sus convocatorias)
+      // de que el evento finalizó.
+      const { rows: inscritos } = await client.query(
+        `SELECT DISTINCT u.id AS usuario_id, u.nombre, u.email,
+                cl.id AS club_id, cl.email AS club_email, cl.nombre AS club_nombre
+         FROM inscripciones i
+         JOIN convocatorias c ON i.convocatoria_id = c.id
+         JOIN atletas a       ON i.atleta_id = a.id
+         JOIN usuarios u      ON a.usuario_id = u.id
+         LEFT JOIN clubes cl  ON a.club_id = cl.id
+         WHERE c.evento_id = $1`,
+        [eventoId]
+      )
+      if (inscritos.length > 0) {
+        const mensaje = `El evento "${rows[0].titulo}" ha finalizado.`
+        await NotificacionModel.crearParaVarios(inscritos.map((i) => i.usuario_id), mensaje)
+        inscritosParaEmail = inscritos
+
+        const clubesUnicos = [...new Map(
+          inscritos.filter((i) => i.club_id).map((i) => [i.club_id, i])
+        ).values()]
+        for (const club of clubesUnicos) {
+          await NotificacionModel.crearParaClub(club.club_id, mensaje)
+        }
+        clubesParaEmail = clubesUnicos
+      }
+    }
+
+    await client.query('COMMIT')
+
+    if (inscritosParaEmail) {
+      for (const u of inscritosParaEmail) {
+        await sendEventoFinalizadoEmail({
+          to: u.email, nombre: u.nombre, eventoTitulo: rows[0].titulo,
+        }).catch((err) => console.error(`No se pudo enviar el correo de evento finalizado a ${u.email}:`, err))
+      }
+      for (const club of (clubesParaEmail || [])) {
+        const atletasDelClub = inscritosParaEmail.filter((i) => i.club_id === club.club_id).map((i) => i.nombre)
+        await sendEventoFinalizadoClubEmail({
+          to: club.club_email, clubNombre: club.club_nombre, eventoTitulo: rows[0].titulo,
+          atletas: atletasDelClub,
+        }).catch((err) => console.error(`No se pudo enviar el correo de evento finalizado al club ${club.club_email}:`, err))
+      }
+    }
+
+    return rows[0]
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
 }

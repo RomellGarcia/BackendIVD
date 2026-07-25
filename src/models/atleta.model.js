@@ -1,5 +1,7 @@
 import { pool } from '../config/db.js'
 import { actualizarDatosUsuario, actualizarClubEntidad } from './usuario.model.js'
+import { sendSolicitudAceptadaEmail, sendSolicitudRechazadaEmail, sendInvitacionClubEmail, sendSalidaClubEmail, sendSolicitudRecibidaClubEmail, sendInvitacionAceptadaClubEmail, sendAtletaSalioClubEmail } from '../services/email.service.js'
+import * as NotificacionModel from './notificacion.model.js'
 
 //Perfil completo del atleta logueado
 export const findByUsuarioId = async (usuarioId) => {
@@ -12,6 +14,7 @@ export const findByUsuarioId = async (usuarioId) => {
       DATE_PART('year', AGE(u.fecha_nacimiento))::int AS edad,
       g.nombre AS genero,
       c.id AS club_id, c.nombre AS club_nombre,
+      c.lugar_entrenamiento AS club_lugar_entrenamiento,
       r.nombre AS rol
      FROM atletas a
      JOIN usuarios u  ON a.usuario_id = u.id
@@ -76,18 +79,36 @@ export const findById = async (atletaId) => {
   return rows[0] || null
 }
 
+//Perfil: el propio atleta editando sus datos. El lugar de entrenamiento es
+//especial — si su club ya tiene uno puesto, el club manda: se ignora lo que
+//el atleta intente mandar en ese campo y se conserva el del club.
 export const updatePerfil = async (atletaId, usuarioId, fields) => {
   const { municipio, lugar_entrenamiento, ...datosUsuario } = fields
 
   await actualizarDatosUsuario(usuarioId, datosUsuario)
 
   if (municipio !== undefined || lugar_entrenamiento !== undefined) {
+    let lugarAAplicar = lugar_entrenamiento
+
+    if (lugar_entrenamiento !== undefined) {
+      const { rows } = await pool.query(
+        `SELECT c.lugar_entrenamiento AS club_lugar
+         FROM atletas a
+         LEFT JOIN clubes c ON a.club_id = c.id
+         WHERE a.id = $1`,
+        [atletaId]
+      )
+      const lugarDelClub = rows[0]?.club_lugar
+      // El club ya tiene uno puesto: el atleta no lo puede pisar con el suyo.
+      if (lugarDelClub) lugarAAplicar = undefined
+    }
+
     await pool.query(
       `UPDATE atletas
        SET municipio           = COALESCE($1, municipio),
            lugar_entrenamiento = COALESCE($2, lugar_entrenamiento)
        WHERE id = $3`,
-      [municipio ?? null, lugar_entrenamiento ?? null, atletaId]
+      [municipio ?? null, lugarAAplicar ?? null, atletaId]
     )
   }
 }
@@ -117,9 +138,67 @@ export const updateAdmin = async (atletaId, fields) => {
   return findById(atletaId)
 }
 
-//Asignar / quitar club a un atleta (usado por admin)
+//Asignar / quitar club a un atleta (usado por admin). Al asignar, si el
+//club tiene lugar de entrenamiento, se copia al atleta; si el club no
+//tiene, se deja el que ya tuviera el atleta. Al quitar el club, se le
+//limpia el lugar de entrenamiento (vuelve a quedar en blanco y editable).
 export const updateClub = async (atletaId, clubId) => {
-  return actualizarClubEntidad('atletas', atletaId, clubId)
+  // Si el admin está SACANDO al atleta de su club (clubId llega vacío),
+  // hay que guardar antes quién era ese club para poder avisarle — una
+  // vez hecho el UPDATE ya no queda registro de a cuál pertenecía.
+  let clubQueSaleInfo = null
+  if (!clubId) {
+    const { rows } = await pool.query(
+      `SELECT c.id AS club_id, c.email AS club_email, c.nombre AS club_nombre, u.nombre AS atleta_nombre, u.email AS atleta_email
+       FROM atletas a
+       JOIN usuarios u     ON a.usuario_id = u.id
+       LEFT JOIN clubes c  ON a.club_id = c.id
+       WHERE a.id = $1`,
+      [atletaId]
+    )
+    clubQueSaleInfo = rows[0]?.club_id ? rows[0] : null
+  }
+
+  const resultado = await actualizarClubEntidad('atletas', atletaId, clubId)
+
+  if (clubId) {
+    const { rows } = await pool.query(`SELECT lugar_entrenamiento FROM clubes WHERE id = $1`, [clubId])
+    const lugarClub = rows[0]?.lugar_entrenamiento
+    if (lugarClub) {
+      await pool.query(`UPDATE atletas SET lugar_entrenamiento = $1 WHERE id = $2`, [lugarClub, atletaId])
+    }
+  } else {
+    await pool.query(`UPDATE atletas SET lugar_entrenamiento = NULL WHERE id = $1`, [atletaId])
+  }
+
+  // Avisar (notificación + correo) al atleta y al club, si de verdad lo
+  // sacaron de uno. No debe tumbar la operación si el correo falla.
+  if (clubQueSaleInfo) {
+    try {
+      await NotificacionModel.crearParaClub(clubQueSaleInfo.club_id, `El atleta "${clubQueSaleInfo.atleta_nombre}" salió de tu club.`)
+      const { rows: atletaRows } = await pool.query(`SELECT usuario_id FROM atletas WHERE id = $1`, [atletaId])
+      const usuarioId = atletaRows[0]?.usuario_id
+      if (usuarioId) {
+        await NotificacionModel.crear(usuarioId, `Ya no perteneces al club "${clubQueSaleInfo.club_nombre}".`)
+      }
+      await sendAtletaSalioClubEmail({
+        to: clubQueSaleInfo.club_email,
+        clubNombre: clubQueSaleInfo.club_nombre,
+        atletaNombre: clubQueSaleInfo.atleta_nombre,
+      })
+      if (clubQueSaleInfo.atleta_email) {
+        await sendSalidaClubEmail({
+          to: clubQueSaleInfo.atleta_email,
+          nombre: clubQueSaleInfo.atleta_nombre,
+          clubNombre: clubQueSaleInfo.club_nombre,
+        })
+      }
+    } catch (err) {
+      console.error('No se pudo notificar la salida del club:', err)
+    }
+  }
+
+  return resultado
 }
 
 //Eliminar atleta (verifica que no tenga resultados ni inscripciones)
@@ -183,6 +262,29 @@ export const crearSolicitudClub = async ({ atletaId, clubId, tipo }) => {
      RETURNING *`,
     [atletaId, clubId ?? null, tipo]
   )
+
+  // Avisar al club (notificación + correo) cuando el atleta solicita
+  // asociarse — no aplica a 'independiente', que no tiene club destino.
+  if (tipo === 'asociar' && clubId) {
+    try {
+      const { rows: datos } = await pool.query(
+        `SELECT u.nombre AS atleta_nombre, c.email AS club_email, c.nombre AS club_nombre
+         FROM atletas a
+         JOIN usuarios u ON a.usuario_id = u.id, clubes c
+         WHERE a.id = $1 AND c.id = $2`,
+        [atletaId, clubId]
+      )
+      const info = datos[0]
+      if (info) {
+        const mensaje = `El atleta "${info.atleta_nombre}" solicitó unirse a tu club.`
+        await NotificacionModel.crearParaClub(clubId, mensaje)
+        await sendSolicitudRecibidaClubEmail({ to: info.club_email, clubNombre: info.club_nombre, atletaNombre: info.atleta_nombre })
+      }
+    } catch (err) {
+      console.error('No se pudo notificar al club la nueva solicitud:', err)
+    }
+  }
+
   return { solicitud: rows[0] }
 }
 
@@ -211,6 +313,26 @@ export const crearInvitacionClub = async ({ atletaId, clubId }) => {
      RETURNING *`,
     [atleta.usuario_id, clubId]
   )
+
+  // Avisar al atleta (notificación en la app + correo). Si el correo
+  // falla no debe tumbar la invitación, que ya quedó guardada.
+  try {
+    const { rows: datos } = await pool.query(
+      `SELECT u.nombre, u.email, c.nombre AS club_nombre
+       FROM usuarios u, clubes c
+       WHERE u.id = $1 AND c.id = $2`,
+      [atleta.usuario_id, clubId]
+    )
+    const info = datos[0]
+    if (info) {
+      const mensaje = `El club "${info.club_nombre}" te envió una invitación para unirte.`
+      await NotificacionModel.crear(atleta.usuario_id, mensaje)
+      await sendInvitacionClubEmail({ to: info.email, nombre: info.nombre, clubNombre: info.club_nombre })
+    }
+  } catch (err) {
+    console.error('No se pudo notificar la invitación de club:', err)
+  }
+
   return { solicitud: rows[0] }
 }
 
@@ -253,6 +375,9 @@ export const findSolicitudesClub = async ({ clubId, atletaId, tipo } = {}) => {
   return rows
 }
 
+//Al aceptar: si el atleta se une a un club con lugar de entrenamiento
+//puesto, se lo copia. Al independizarse, se le limpia por completo (vuelve
+//a quedar editable por él mismo).
 export const procesarSolicitudClub = async (solicitudId, estado) => {
   const { rows: sol } = await pool.query(
     `SELECT * FROM solicitudes_club WHERE id = $1`,
@@ -267,6 +392,9 @@ export const procesarSolicitudClub = async (solicitudId, estado) => {
     `UPDATE solicitudes_club SET estado = $1 WHERE id = $2`,
     [estado, solicitudId]
   )
+
+  let clubQueSaleInfo = null
+  let invitacionAceptadaInfo = null
 
   if (estado === 'aceptada') {
     //Obtener atleta_id desde usuario_id
@@ -283,13 +411,116 @@ export const procesarSolicitudClub = async (solicitudId, estado) => {
          WHERE id = $2`,
         [solicitud.club_id, atletaId]
       )
+
+      const { rows: clubRows } = await pool.query(
+        `SELECT lugar_entrenamiento FROM clubes WHERE id = $1`,
+        [solicitud.club_id]
+      )
+      const lugarClub = clubRows[0]?.lugar_entrenamiento
+      if (lugarClub) {
+        await pool.query(
+          `UPDATE atletas SET lugar_entrenamiento = $1 WHERE id = $2`,
+          [lugarClub, atletaId]
+        )
+      }
+
+      // Si el club fue quien invitó (no el atleta quien solicitó), avisarle
+      // al club que su invitación fue aceptada.
+      if (solicitud.tipo === 'invitacion') {
+        const { rows: datosInv } = await pool.query(
+          `SELECT u.nombre AS atleta_nombre, c.email AS club_email, c.nombre AS club_nombre
+           FROM usuarios u, clubes c
+           WHERE u.id = $1 AND c.id = $2`,
+          [solicitud.usuario_id, solicitud.club_id]
+        )
+        invitacionAceptadaInfo = datosInv[0] || null
+      }
     }
 
     if (solicitud.tipo === 'independiente') {
-      await pool.query(
-        `UPDATE atletas SET club_id = NULL, fecha_ingreso_club = NULL WHERE id = $1`,
+      const { rows: clubActual } = await pool.query(
+        `SELECT c.id AS club_id, c.email AS club_email, c.nombre AS club_nombre, u.nombre AS atleta_nombre
+         FROM atletas a
+         JOIN usuarios u     ON a.usuario_id = u.id
+         LEFT JOIN clubes c  ON a.club_id = c.id
+         WHERE a.id = $1`,
         [atletaId]
       )
+      clubQueSaleInfo = clubActual[0]?.club_id ? clubActual[0] : null
+
+      await pool.query(
+        `UPDATE atletas SET club_id = NULL, fecha_ingreso_club = NULL, lugar_entrenamiento = NULL WHERE id = $1`,
+        [atletaId]
+      )
+    }
+  }
+
+  // Avisar al atleta del resultado (solo cuando hay un club de por medio —
+  // 'asociar' o 'invitacion'; 'independiente' no aplica). Si el correo
+  // falla no debe tumbar el cambio de estado, que ya quedó guardado.
+  if ((estado === 'aceptada' || estado === 'rechazada') && solicitud.club_id) {
+    try {
+      const { rows: datos } = await pool.query(
+        `SELECT u.nombre, u.email, c.nombre AS club_nombre
+         FROM usuarios u, clubes c
+         WHERE u.id = $1 AND c.id = $2`,
+        [solicitud.usuario_id, solicitud.club_id]
+      )
+      const info = datos[0]
+      if (info) {
+        const mensaje = estado === 'aceptada'
+          ? `Tu solicitud para unirte a "${info.club_nombre}" fue aceptada.`
+          : `Tu solicitud para unirte a "${info.club_nombre}" fue rechazada.`
+        await NotificacionModel.crear(solicitud.usuario_id, mensaje)
+
+        if (estado === 'aceptada') {
+          await sendSolicitudAceptadaEmail({ to: info.email, nombre: info.nombre, clubNombre: info.club_nombre })
+        } else {
+          await sendSolicitudRechazadaEmail({ to: info.email, nombre: info.nombre, clubNombre: info.club_nombre })
+        }
+      }
+    } catch (err) {
+      console.error('No se pudo notificar el resultado de la solicitud:', err)
+    }
+  }
+
+  // El club invitó y el atleta aceptó: avisarle al club.
+  if (invitacionAceptadaInfo) {
+    try {
+      await NotificacionModel.crearParaClub(solicitud.club_id, `El atleta "${invitacionAceptadaInfo.atleta_nombre}" aceptó tu invitación.`)
+      await sendInvitacionAceptadaClubEmail({
+        to: invitacionAceptadaInfo.club_email,
+        clubNombre: invitacionAceptadaInfo.club_nombre,
+        atletaNombre: invitacionAceptadaInfo.atleta_nombre,
+      })
+    } catch (err) {
+      console.error('No se pudo notificar al club la invitación aceptada:', err)
+    }
+  }
+
+  // El atleta se independizó: avisarle al club que lo pierde, y al propio
+  // atleta que ya no pertenece a él.
+  if (clubQueSaleInfo) {
+    try {
+      const { rows: usuarioRows } = await pool.query(`SELECT email FROM usuarios WHERE id = $1`, [solicitud.usuario_id])
+      const atletaEmail = usuarioRows[0]?.email
+
+      await NotificacionModel.crearParaClub(clubQueSaleInfo.club_id, `El atleta "${clubQueSaleInfo.atleta_nombre}" salió de tu club.`)
+      await NotificacionModel.crear(solicitud.usuario_id, `Ya no perteneces al club "${clubQueSaleInfo.club_nombre}".`)
+      await sendAtletaSalioClubEmail({
+        to: clubQueSaleInfo.club_email,
+        clubNombre: clubQueSaleInfo.club_nombre,
+        atletaNombre: clubQueSaleInfo.atleta_nombre,
+      })
+      if (atletaEmail) {
+        await sendSalidaClubEmail({
+          to: atletaEmail,
+          nombre: clubQueSaleInfo.atleta_nombre,
+          clubNombre: clubQueSaleInfo.club_nombre,
+        })
+      }
+    } catch (err) {
+      console.error('No se pudo notificar la salida del club:', err)
     }
   }
 

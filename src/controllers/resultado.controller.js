@@ -87,3 +87,28 @@ export const remove = async (req, res, next) => {
     res.json({ mensaje: 'Resultado eliminado correctamente' })
   } catch (err) { next(err) }
 }
+
+export const crearMasivo = async (req, res, next) => {
+  try {
+    const { convocatoria_id, atletas, ano_competitivo } = req.body
+    const idsCreados = await ResultadoModel.createMasivoPorConvocatoria(convocatoria_id, atletas, ano_competitivo)
+    if (!idsCreados) return res.status(404).json({ error: 'Convocatoria no encontrada' })
+    res.status(201).json({ mensaje: `${idsCreados.length} resultados creados`, ids: idsCreados })
+  } catch (err) { next(err) }
+}
+
+export const getByConvocatoria = async (req, res, next) => {
+  try {
+    const resultados = await ResultadoModel.findByConvocatoria(req.params.convocatoriaId)
+    if (resultados === null) return res.status(404).json({ error: 'Convocatoria no encontrada' })
+    res.json({ resultados })
+  } catch (err) { next(err) }
+}
+
+export const removeByConvocatoria = async (req, res, next) => {
+  try {
+    const cantidad = await ResultadoModel.removeByConvocatoria(req.params.convocatoriaId)
+    if (cantidad === null) return res.status(404).json({ error: 'Convocatoria no encontrada' })
+    res.json({ mensaje: `${cantidad} resultados eliminados` })
+  } catch (err) { next(err) }
+}

@@ -1,226 +1,413 @@
-// Nodemailer con Gmail (cuenta con contraseña de aplicación)
-// npm install nodemailer
-import nodemailer from 'nodemailer'
+// Brevo (antes Sendinblue) — API HTTP, funciona en Vercel. 100% gratis
+// (300 correos/día, sin tarjeta) y NO requiere comprar un dominio: basta
+// con verificar un correo tuyo (tu Gmail, por ejemplo) como remitente.
+//
+// Variables de entorno:
+//   BREVO_API_KEY, EMAIL_FROM_EMAIL, EMAIL_FROM_NAME
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_APP_PASSWORD,
-  }
-})
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
 
 const DEFAULT_SENDER = {
-  name: process.env.EMAIL_NAME || 'Instituto Veracruzano del Deporte',
-  address: process.env.EMAIL_USER,
+  name: process.env.EMAIL_FROM_NAME || 'Instituto Veracruzano del Deporte',
+  email: process.env.EMAIL_FROM_EMAIL,
 }
 
 // Enviar email genérico
 export const sendEmail = async ({ to, subject, htmlContent }) => {
-  await transporter.sendMail({
-    from: DEFAULT_SENDER,
-    to,
-    subject,
-    html: htmlContent,
+  const destinatarios = Array.isArray(to) ? to : [to]
+
+  const response = await fetch(BREVO_API_URL, {
+    method: 'POST',
+    headers: {
+      'accept': 'application/json',
+      'content-type': 'application/json',
+      'api-key': process.env.BREVO_API_KEY,
+    },
+    body: JSON.stringify({
+      sender: DEFAULT_SENDER,
+      to: destinatarios.map((email) => ({ email })),
+      subject,
+      htmlContent,
+    }),
   })
+
+  if (!response.ok) {
+    const detalle = await response.json().catch(() => ({}))
+    console.error('Error al enviar correo con Brevo:', detalle)
+    throw new Error(detalle.message || 'No se pudo enviar el correo')
+  }
 }
 
-// Email de bienvenida al registrarse
-export const sendWelcomeEmail = async ({ to, nombre }) => {
-  await sendEmail({
-    to,
-    subject: 'Bienvenido al IVD',
-    htmlContent: `
-      <h2>¡Hola, ${nombre}!</h2>
-      <p>Tu cuenta en el Instituto Veracruzano del Deporte ha sido creada exitosamente.</p>
-      <p>Ya puedes iniciar sesión y explorar los eventos disponibles.</p>
-    `
-  })
+// ─────────────────────────────────────────────────────────────────────────
+// Plantilla visual única para todos los correos del sistema. `emoji` y
+// `acento` cambian según el tipo de aviso (cancelación, buena noticia,
+// info neutra) para que de un vistazo se distinga el tono del mensaje.
+// ─────────────────────────────────────────────────────────────────────────
+const PALETA = {
+  burgundy: '#800020',
+  burgundyDark: '#5C0017',
+  purple: '#7A4069',
+  ink: '#2B1E1E',
+  cream: '#F4EFE9',
+  verde: '#1D6F42',
+  verdeSoft: '#EAF6EF',
+  rojoSoft: '#FBEEF0',
 }
 
-// Email de notificación cuando una solicitud de club es aceptada
-export const sendSolicitudAceptadaEmail = async ({ to, nombre, clubNombre }) => {
-  await sendEmail({
-    to,
-    subject: `Tu solicitud al club ${clubNombre} fue aceptada`,
-    htmlContent: `
-      <h2>¡Buenas noticias, ${nombre}!</h2>
-      <p>Tu solicitud para unirte al club <strong>${clubNombre}</strong> ha sido <strong>aceptada</strong>.</p>
-      <p>Ya formas parte del club. ¡Mucho éxito!</p>
-    `
-  })
-}
+const wrapperEmailIVD = ({ emoji = '📣', tituloEtiqueta, nombre, cuerpoHtml, acento = PALETA.burgundy }) => `
+  <div style="background-color:${PALETA.cream}; padding:40px 16px; font-family: 'Segoe UI', Arial, Helvetica, sans-serif;">
+    <div style="max-width:540px; margin:0 auto; background:#ffffff; border-radius:14px; overflow:hidden; box-shadow:0 8px 28px rgba(128,0,32,0.14);">
 
-// Email de notificación cuando una solicitud es rechazada
-export const sendSolicitudRechazadaEmail = async ({ to, nombre, clubNombre }) => {
-  await sendEmail({
-    to,
-    subject: `Tu solicitud al club ${clubNombre} fue rechazada`,
-    htmlContent: `
-      <h2>Hola, ${nombre}</h2>
-      <p>Lamentablemente tu solicitud para unirte al club <strong>${clubNombre}</strong> fue <strong>rechazada</strong>.</p>
-      <p>Puedes intentar con otro club o contactar directamente con el administrador.</p>
-    `
-  })
-}
-
-// Email con el código de recuperación de contraseña
-export const sendPasswordResetEmail = async ({ to, nombre, codigo }) => {
-  await sendEmail({
-    to,
-    subject: 'Código para recuperar tu contraseña — IVD',
-    htmlContent: `
-      <h2>Hola${nombre ? ', ' + nombre : ''}</h2>
-      <p>Recibimos una solicitud para restablecer tu contraseña. Usa este código para continuar:</p>
-      <p style="font-size: 28px; font-weight: bold; letter-spacing: 4px; color: #800020;">${codigo}</p>
-      <p>Si tú no solicitaste esto, puedes ignorar este correo — tu contraseña no cambiará.</p>
-    `
-  })
-}
-
-// Reemplaza estas dos funciones en tu email.service.js (o el archivo donde
-// vivan sendConvocatoriaCanceladaEmail / sendEventoCanceladoEmail). Mismo
-// nombre, mismos parámetros — solo cambia el HTML.
-
-const wrapperEmailIVD = ({ tituloEtiqueta, nombre, cuerpoHtml }) => `
-  <div style="background-color:#e4e4e5; padding:32px 16px; font-family: Arial, Helvetica, sans-serif;">
-    <div style="max-width:520px; margin:0 auto; background:#ffffff; border-radius:10px; overflow:hidden; box-shadow:0 2px 12px rgba(128,0,32,0.12);">
-
-      <div style="background-color:#800020; padding:24px 28px;">
-        <p style="margin:0; color:rgba(255,255,255,0.7); font-size:11px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase;">
-          Instituto Veracruzano del Deporte
-        </p>
-        <p style="margin:6px 0 0; color:#ffffff; font-size:13px; font-weight:700; letter-spacing:1px; text-transform:uppercase;">
+      <div style="background:linear-gradient(135deg, ${PALETA.burgundy} 0%, ${PALETA.burgundyDark} 100%); padding:30px 32px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td>
+              <p style="margin:0; color:rgba(255,255,255,0.65); font-size:10.5px; font-weight:700; letter-spacing:2px; text-transform:uppercase;">
+                Instituto Veracruzano del Deporte
+              </p>
+            </td>
+            <td align="right">
+              <div style="display:inline-block; width:38px; height:38px; line-height:38px; text-align:center; background:rgba(255,255,255,0.14); border-radius:50%; font-size:18px;">
+                ${emoji}
+              </div>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:14px 0 0; color:#ffffff; font-size:16px; font-weight:800;">
           ${tituloEtiqueta}
         </p>
       </div>
 
-      <div style="padding:28px;">
-        <h2 style="margin:0 0 16px; color:#2B1E1E; font-size:20px;">Hola, ${nombre}</h2>
+      <div style="padding:32px;">
+        <p style="margin:0 0 18px; color:${PALETA.ink}; font-size:19px; font-weight:800;">Hola, ${nombre}</p>
         ${cuerpoHtml}
       </div>
 
-      <div style="padding:16px 28px; background-color:#faf7f8; border-top:1px solid rgba(128,0,32,0.12);">
-        <p style="margin:0; color:#7A4069; font-size:11px;">
-          Este es un correo automático del sistema de gestión de eventos del IVD. Si tienes dudas, contacta directamente al Instituto.
+      <div style="padding:18px 32px; background-color:${PALETA.cream}; border-top:3px solid ${acento};">
+        <p style="margin:0; color:${PALETA.purple}; font-size:11px; line-height:1.5;">
+          Este es un correo automático del sistema de gestión deportiva del IVD. No respondas a este mensaje directamente; si tienes dudas, contacta al Instituto.
         </p>
       </div>
     </div>
   </div>
 `;
 
-// Email cuando se cancela una convocatoria específica
+const destacado = ({ label, lineas, acento = PALETA.burgundy, bg = PALETA.rojoSoft }) => `
+  <div style="background-color:${bg}; border-left:4px solid ${acento}; border-radius:8px; padding:16px 18px; margin:0 0 20px;">
+    ${label ? `<p style="margin:0 0 5px; font-size:12px; color:${PALETA.purple}; font-weight:800; text-transform:uppercase; letter-spacing:0.6px;">${label}</p>` : ''}
+    ${lineas.map((l, i) => `<p style="margin:${i === 0 ? '0' : '5px 0 0'}; font-size:${i === 0 ? '15.5px' : '13px'}; color:${PALETA.ink}; font-weight:${i === 0 ? '700' : '400'};">${l}</p>`).join('')}
+  </div>
+`;
+
+const parrafo = (texto) => `<p style="margin:0 0 16px; color:${PALETA.ink}; font-size:14.5px; line-height:1.65;">${texto}</p>`;
+
+const listaAtletasHtml = (atletas) => `
+  <ul style="margin:0 0 4px; padding-left:20px; color:${PALETA.ink}; font-size:14px; line-height:1.9;">
+    ${atletas.map((nombre) => `<li>${nombre}</li>`).join('')}
+  </ul>
+`;
+
+// ─────────────────────────────────────────────────────────────────────────
+// Cuenta / acceso
+// ─────────────────────────────────────────────────────────────────────────
+
+export const sendWelcomeEmail = async ({ to, nombre }) => {
+  await sendEmail({
+    to,
+    subject: 'Bienvenido al IVD',
+    htmlContent: wrapperEmailIVD({
+      emoji: '👋', tituloEtiqueta: 'Cuenta creada', nombre, acento: PALETA.verde,
+      cuerpoHtml: parrafo('Tu cuenta en el Instituto Veracruzano del Deporte fue creada exitosamente. Ya puedes iniciar sesión y explorar los eventos disponibles.'),
+    }),
+  })
+}
+
+export const sendPasswordResetEmail = async ({ to, nombre, codigo }) => {
+  await sendEmail({
+    to,
+    subject: 'Código para recuperar tu contraseña — IVD',
+    htmlContent: wrapperEmailIVD({
+      emoji: '🔑', tituloEtiqueta: 'Recuperar contraseña', nombre: nombre || '',
+      cuerpoHtml: `
+        ${parrafo('Recibimos una solicitud para restablecer tu contraseña. Usa este código para continuar:')}
+        <p style="text-align:center; margin:0 0 16px;">
+          <span style="display:inline-block; font-size:30px; font-weight:800; letter-spacing:6px; color:${PALETA.burgundy}; background:${PALETA.cream}; padding:12px 22px; border-radius:10px;">${codigo}</span>
+        </p>
+        ${parrafo('Si tú no solicitaste esto, ignora este correo — tu contraseña no cambiará.')}
+      `,
+    }),
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Club — solicitudes / invitaciones (lado ATLETA)
+// ─────────────────────────────────────────────────────────────────────────
+
+export const sendSolicitudAceptadaEmail = async ({ to, nombre, clubNombre }) => {
+  await sendEmail({
+    to,
+    subject: `Tu solicitud al club ${clubNombre} fue aceptada`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '✅', tituloEtiqueta: 'Solicitud aceptada', nombre, acento: PALETA.verde,
+      cuerpoHtml: `
+        ${parrafo(`¡Buenas noticias! Tu solicitud para unirte al club <strong>${clubNombre}</strong> fue <strong style="color:${PALETA.verde};">aceptada</strong>.`)}
+        ${parrafo('Ya formas parte del club. ¡Mucho éxito en tu próxima competencia!')}
+      `,
+    }),
+  })
+}
+
+export const sendSolicitudRechazadaEmail = async ({ to, nombre, clubNombre }) => {
+  await sendEmail({
+    to,
+    subject: `Tu solicitud al club ${clubNombre} fue rechazada`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '✖️', tituloEtiqueta: 'Solicitud rechazada', nombre,
+      cuerpoHtml: `
+        ${parrafo(`Lamentablemente tu solicitud para unirte al club <strong>${clubNombre}</strong> fue <strong style="color:${PALETA.burgundy};">rechazada</strong>.`)}
+        ${parrafo('Puedes intentar con otro club o contactar directamente al administrador para más información.')}
+      `,
+    }),
+  })
+}
+
+export const sendInvitacionClubEmail = async ({ to, nombre, clubNombre }) => {
+  await sendEmail({
+    to,
+    subject: `${clubNombre} te invitó a unirte`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '🤝', tituloEtiqueta: 'Invitación de club', nombre,
+      cuerpoHtml: `
+        ${parrafo(`El club <strong>${clubNombre}</strong> te envió una invitación para unirte a su plantilla.`)}
+        ${parrafo('Inicia sesión en la plataforma del IVD para aceptar o rechazar la invitación.')}
+      `,
+    }),
+  })
+}
+
+// Al atleta, cuando se queda sin club (lo sacan o él mismo se independiza
+// y queda confirmado)
+export const sendSalidaClubEmail = async ({ to, nombre, clubNombre }) => {
+  await sendEmail({
+    to,
+    subject: `Ya no perteneces al club ${clubNombre}`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '👋', tituloEtiqueta: 'Salida de club', nombre,
+      cuerpoHtml: `
+        ${parrafo(`Te informamos que ya no perteneces al club <strong>${clubNombre}</strong>.`)}
+        ${parrafo('Si esto no fue lo que esperabas, contacta directamente al club o al administrador del sistema.')}
+      `,
+    }),
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Club — el lado del CLUB de las mismas solicitudes/invitaciones
+// ─────────────────────────────────────────────────────────────────────────
+
+export const sendSolicitudRecibidaClubEmail = async ({ to, clubNombre, atletaNombre }) => {
+  await sendEmail({
+    to,
+    subject: `${atletaNombre} solicitó unirse a tu club`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '📨', tituloEtiqueta: 'Nueva solicitud', nombre: clubNombre,
+      cuerpoHtml: `
+        ${parrafo(`El atleta <strong>${atletaNombre}</strong> solicitó unirse a tu club.`)}
+        ${parrafo('Inicia sesión en la plataforma para revisar la solicitud y aceptarla o rechazarla.')}
+      `,
+    }),
+  })
+}
+
+export const sendInvitacionAceptadaClubEmail = async ({ to, clubNombre, atletaNombre }) => {
+  await sendEmail({
+    to,
+    subject: `${atletaNombre} aceptó tu invitación`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '✅', tituloEtiqueta: 'Invitación aceptada', nombre: clubNombre, acento: PALETA.verde,
+      cuerpoHtml: parrafo(`El atleta <strong>${atletaNombre}</strong> aceptó tu invitación y ya forma parte de tu club.`),
+    }),
+  })
+}
+
+export const sendAtletaSalioClubEmail = async ({ to, clubNombre, atletaNombre }) => {
+  await sendEmail({
+    to,
+    subject: `${atletaNombre} salió de tu club`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '👋', tituloEtiqueta: 'Atleta dado de baja', nombre: clubNombre,
+      cuerpoHtml: parrafo(`El atleta <strong>${atletaNombre}</strong> ya no forma parte de tu club.`),
+    }),
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Cancelaciones — lado ATLETA
+// ─────────────────────────────────────────────────────────────────────────
+
 export const sendConvocatoriaCanceladaEmail = async ({ to, nombre, disciplina, categoria, eventoTitulo }) => {
   await sendEmail({
     to,
     subject: `Convocatoria cancelada: ${disciplina} - ${categoria}`,
     htmlContent: wrapperEmailIVD({
-      tituloEtiqueta: 'Convocatoria cancelada',
-      nombre,
+      emoji: '🚫', tituloEtiqueta: 'Convocatoria cancelada', nombre,
       cuerpoHtml: `
-        <p style="margin:0 0 14px; color:#2B1E1E; font-size:14.5px; line-height:1.6;">
-          Te informamos que la convocatoria fue <strong style="color:#800020;">cancelada</strong> por el administrador.
-        </p>
-
-        <div style="background-color:#faf2f4; border-left:4px solid #800020; border-radius:6px; padding:14px 16px; margin:0 0 18px;">
-          <p style="margin:0 0 4px; font-size:13px; color:#7A4069; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Convocatoria</p>
-          <p style="margin:0; font-size:15px; color:#2B1E1E; font-weight:700;">${disciplina} — ${categoria}</p>
-          <p style="margin:6px 0 0; font-size:13px; color:#7A4069;">Evento: ${eventoTitulo}</p>
-        </div>
-
-        <p style="margin:0; color:#2B1E1E; font-size:14.5px; line-height:1.6;">
-          Tu inscripción correspondiente fue dada de baja automáticamente — no necesitas hacer nada más.
-        </p>
+        ${parrafo(`Te informamos que la convocatoria fue <strong style="color:${PALETA.burgundy};">cancelada</strong> por el administrador.`)}
+        ${destacado({ label: 'Convocatoria', lineas: [`${disciplina} — ${categoria}`, `Evento: ${eventoTitulo}`] })}
+        ${parrafo('Tu inscripción correspondiente fue dada de baja automáticamente — no necesitas hacer nada más.')}
       `,
     }),
   });
 };
 
-// Email cuando se cancela un evento completo
 export const sendEventoCanceladoEmail = async ({ to, nombre, eventoTitulo }) => {
   await sendEmail({
     to,
     subject: `Evento cancelado: ${eventoTitulo}`,
     htmlContent: wrapperEmailIVD({
-      tituloEtiqueta: 'Evento cancelado',
-      nombre,
+      emoji: '🚫', tituloEtiqueta: 'Evento cancelado', nombre,
       cuerpoHtml: `
-        <p style="margin:0 0 14px; color:#2B1E1E; font-size:14.5px; line-height:1.6;">
-          Te informamos que el siguiente evento fue <strong style="color:#800020;">cancelado</strong> por el administrador.
-        </p>
-
-        <div style="background-color:#faf2f4; border-left:4px solid #800020; border-radius:6px; padding:14px 16px; margin:0 0 18px;">
-          <p style="margin:0; font-size:15px; color:#2B1E1E; font-weight:700;">${eventoTitulo}</p>
-        </div>
-
-        <p style="margin:0; color:#2B1E1E; font-size:14.5px; line-height:1.6;">
-          Todas las inscripciones asociadas a este evento fueron dadas de baja automáticamente — no necesitas hacer nada más.
-        </p>
+        ${parrafo(`Te informamos que el siguiente evento fue <strong style="color:${PALETA.burgundy};">cancelado</strong> por el administrador.`)}
+        ${destacado({ label: null, lineas: [eventoTitulo] })}
+        ${parrafo('Todas las inscripciones asociadas a este evento fueron dadas de baja automáticamente — no necesitas hacer nada más.')}
       `,
     }),
   });
 };
 
-// Agrega estas dos funciones a tu email.service.js, junto a las que ya
-// tienes (usan el mismo wrapperEmailIVD que las de atleta, si ya aplicaste
-// el rediseño anterior; si no, usa tu wrapper actual).
+// ─────────────────────────────────────────────────────────────────────────
+// Cancelaciones — lado CLUB (lista los atletas propios afectados)
+// ─────────────────────────────────────────────────────────────────────────
 
-const listaAtletasHtml = (atletas) => `
-  <ul style="margin:0; padding-left:18px; color:#2B1E1E; font-size:14px; line-height:1.8;">
-    ${atletas.map((nombre) => `<li>${nombre}</li>`).join('')}
-  </ul>
-`;
-
-// Email al club cuando se cancela una convocatoria específica — lista solo
-// los atletas de ESE club que estaban inscritos en ella.
 export const sendConvocatoriaCanceladaClubEmail = async ({ to, clubNombre, disciplina, categoria, eventoTitulo, atletas }) => {
   await sendEmail({
     to,
     subject: `Convocatoria cancelada: ${disciplina} - ${categoria}`,
     htmlContent: wrapperEmailIVD({
-      tituloEtiqueta: 'Convocatoria cancelada',
-      nombre: clubNombre,
+      emoji: '🚫', tituloEtiqueta: 'Convocatoria cancelada', nombre: clubNombre,
       cuerpoHtml: `
-        <p style="margin:0 0 14px; color:#2B1E1E; font-size:14.5px; line-height:1.6;">
-          Te informamos que la convocatoria fue <strong style="color:#800020;">cancelada</strong> por el administrador.
-        </p>
-
-        <div style="background-color:#faf2f4; border-left:4px solid #800020; border-radius:6px; padding:14px 16px; margin:0 0 18px;">
-          <p style="margin:0 0 4px; font-size:13px; color:#7A4069; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Convocatoria</p>
-          <p style="margin:0; font-size:15px; color:#2B1E1E; font-weight:700;">${disciplina} — ${categoria}</p>
-          <p style="margin:6px 0 0; font-size:13px; color:#7A4069;">Evento: ${eventoTitulo}</p>
-        </div>
-
-        <p style="margin:0 0 8px; color:#2B1E1E; font-size:14.5px; line-height:1.6;">
-          Los siguientes atletas de tu club estaban inscritos y fueron dados de baja automáticamente:
-        </p>
+        ${parrafo(`Te informamos que la convocatoria fue <strong style="color:${PALETA.burgundy};">cancelada</strong> por el administrador.`)}
+        ${destacado({ label: 'Convocatoria', lineas: [`${disciplina} — ${categoria}`, `Evento: ${eventoTitulo}`] })}
+        ${parrafo('Los siguientes atletas de tu club estaban inscritos y fueron dados de baja automáticamente:')}
         ${listaAtletasHtml(atletas)}
       `,
     }),
   });
 };
 
-// Email al club cuando se cancela un evento completo — lista todos los
-// atletas de ESE club inscritos en cualquiera de sus convocatorias.
 export const sendEventoCanceladoClubEmail = async ({ to, clubNombre, eventoTitulo, atletas }) => {
   await sendEmail({
     to,
     subject: `Evento cancelado: ${eventoTitulo}`,
     htmlContent: wrapperEmailIVD({
-      tituloEtiqueta: 'Evento cancelado',
-      nombre: clubNombre,
+      emoji: '🚫', tituloEtiqueta: 'Evento cancelado', nombre: clubNombre,
       cuerpoHtml: `
-        <p style="margin:0 0 14px; color:#2B1E1E; font-size:14.5px; line-height:1.6;">
-          Te informamos que el siguiente evento fue <strong style="color:#800020;">cancelado</strong> por el administrador.
-        </p>
+        ${parrafo(`Te informamos que el siguiente evento fue <strong style="color:${PALETA.burgundy};">cancelado</strong> por el administrador.`)}
+        ${destacado({ label: null, lineas: [eventoTitulo] })}
+        ${parrafo('Los siguientes atletas de tu club estaban inscritos y fueron dados de baja automáticamente:')}
+        ${listaAtletasHtml(atletas)}
+      `,
+    }),
+  });
+};
 
-        <div style="background-color:#faf2f4; border-left:4px solid #800020; border-radius:6px; padding:14px 16px; margin:0 0 18px;">
-          <p style="margin:0; font-size:15px; color:#2B1E1E; font-weight:700;">${eventoTitulo}</p>
-        </div>
+// ─────────────────────────────────────────────────────────────────────────
+// Finalización — lado ATLETA
+// ─────────────────────────────────────────────────────────────────────────
 
-        <p style="margin:0 0 8px; color:#2B1E1E; font-size:14.5px; line-height:1.6;">
-          Los siguientes atletas de tu club estaban inscritos y fueron dados de baja automáticamente:
-        </p>
+export const sendConvocatoriaFinalizadaEmail = async ({ to, nombre, disciplina, categoria, eventoTitulo }) => {
+  await sendEmail({
+    to,
+    subject: `Convocatoria finalizada: ${disciplina} - ${categoria}`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '🏁', tituloEtiqueta: 'Convocatoria finalizada', nombre,
+      cuerpoHtml: `
+        ${parrafo('La convocatoria en la que participaste ha <strong>finalizado</strong>.')}
+        ${destacado({ label: 'Convocatoria', lineas: [`${disciplina} — ${categoria}`, `Evento: ${eventoTitulo}`], acento: PALETA.purple, bg: PALETA.cream })}
+      `,
+    }),
+  });
+};
+
+export const sendEventoFinalizadoEmail = async ({ to, nombre, eventoTitulo }) => {
+  await sendEmail({
+    to,
+    subject: `Evento finalizado: ${eventoTitulo}`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '🏁', tituloEtiqueta: 'Evento finalizado', nombre,
+      cuerpoHtml: `
+        ${parrafo('El siguiente evento en el que participaste ha <strong>finalizado</strong>.')}
+        ${destacado({ label: null, lineas: [eventoTitulo], acento: PALETA.purple, bg: PALETA.cream })}
+      `,
+    }),
+  });
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// Finalización — lado CLUB (lista los atletas propios que participaron)
+// ─────────────────────────────────────────────────────────────────────────
+
+export const sendConvocatoriaFinalizadaClubEmail = async ({ to, clubNombre, disciplina, categoria, eventoTitulo, atletas }) => {
+  await sendEmail({
+    to,
+    subject: `Convocatoria finalizada: ${disciplina} - ${categoria}`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '🏁', tituloEtiqueta: 'Convocatoria finalizada', nombre: clubNombre,
+      cuerpoHtml: `
+        ${parrafo('La siguiente convocatoria, en la que participaron atletas de tu club, ha <strong>finalizado</strong>.')}
+        ${destacado({ label: 'Convocatoria', lineas: [`${disciplina} — ${categoria}`, `Evento: ${eventoTitulo}`], acento: PALETA.purple, bg: PALETA.cream })}
+        ${parrafo('Atletas de tu club que participaron:')}
+        ${listaAtletasHtml(atletas)}
+      `,
+    }),
+  });
+};
+
+export const sendEventoFinalizadoClubEmail = async ({ to, clubNombre, eventoTitulo, atletas }) => {
+  await sendEmail({
+    to,
+    subject: `Evento finalizado: ${eventoTitulo}`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '🏁', tituloEtiqueta: 'Evento finalizado', nombre: clubNombre,
+      cuerpoHtml: `
+        ${parrafo('El siguiente evento, en el que participaron atletas de tu club, ha <strong>finalizado</strong>.')}
+        ${destacado({ label: null, lineas: [eventoTitulo], acento: PALETA.purple, bg: PALETA.cream })}
+        ${parrafo('Atletas de tu club que participaron:')}
+        ${listaAtletasHtml(atletas)}
+      `,
+    }),
+  });
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// Resultados publicados — ATLETA y CLUB
+// ─────────────────────────────────────────────────────────────────────────
+
+export const sendResultadosPublicadosEmail = async ({ to, nombre, disciplina, categoria, eventoTitulo }) => {
+  await sendEmail({
+    to,
+    subject: `Ya están los resultados: ${disciplina} - ${categoria}`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '🏆', tituloEtiqueta: 'Resultados publicados', nombre, acento: PALETA.verde,
+      cuerpoHtml: `
+        ${parrafo('Ya se publicaron los resultados oficiales de la convocatoria en la que participaste.')}
+        ${destacado({ label: 'Convocatoria', lineas: [`${disciplina} — ${categoria}`, `Evento: ${eventoTitulo}`], acento: PALETA.verde, bg: PALETA.verdeSoft })}
+        ${parrafo('Inicia sesión en la plataforma para ver tu lugar y descargar el Excel de resultados.')}
+      `,
+    }),
+  });
+};
+
+export const sendResultadosPublicadosClubEmail = async ({ to, clubNombre, disciplina, categoria, eventoTitulo, atletas }) => {
+  await sendEmail({
+    to,
+    subject: `Ya están los resultados: ${disciplina} - ${categoria}`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '🏆', tituloEtiqueta: 'Resultados publicados', nombre: clubNombre, acento: PALETA.verde,
+      cuerpoHtml: `
+        ${parrafo('Ya se publicaron los resultados oficiales de una convocatoria en la que participaron atletas de tu club.')}
+        ${destacado({ label: 'Convocatoria', lineas: [`${disciplina} — ${categoria}`, `Evento: ${eventoTitulo}`], acento: PALETA.verde, bg: PALETA.verdeSoft })}
+        ${parrafo('Resultados publicados para:')}
         ${listaAtletasHtml(atletas)}
       `,
     }),
