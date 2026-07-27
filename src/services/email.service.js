@@ -230,6 +230,18 @@ export const sendInvitacionAceptadaClubEmail = async ({ to, clubNombre, atletaNo
   })
 }
 
+// Mismo criterio, para cuando quien acepta la invitación es un entrenador.
+export const sendInvitacionEntrenadorAceptadaClubEmail = async ({ to, clubNombre, entrenadorNombre }) => {
+  await sendEmail({
+    to,
+    subject: `${entrenadorNombre} aceptó tu invitación`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '✅', tituloEtiqueta: 'Invitación aceptada', nombre: clubNombre, acento: PALETA.verde,
+      cuerpoHtml: parrafo(`El entrenador <strong>${entrenadorNombre}</strong> aceptó tu invitación y ya forma parte de tu club.`),
+    }),
+  })
+}
+
 export const sendAtletaSalioClubEmail = async ({ to, clubNombre, atletaNombre }) => {
   await sendEmail({
     to,
@@ -237,6 +249,18 @@ export const sendAtletaSalioClubEmail = async ({ to, clubNombre, atletaNombre })
     htmlContent: wrapperEmailIVD({
       emoji: '👋', tituloEtiqueta: 'Atleta dado de baja', nombre: clubNombre,
       cuerpoHtml: parrafo(`El atleta <strong>${atletaNombre}</strong> ya no forma parte de tu club.`),
+    }),
+  })
+}
+
+// Mismo criterio, para cuando quien sale (o es expulsado) es un entrenador.
+export const sendEntrenadorSalioClubEmail = async ({ to, clubNombre, entrenadorNombre }) => {
+  await sendEmail({
+    to,
+    subject: `${entrenadorNombre} salió de tu club`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '👋', tituloEtiqueta: 'Entrenador dado de baja', nombre: clubNombre,
+      cuerpoHtml: parrafo(`El entrenador <strong>${entrenadorNombre}</strong> ya no forma parte de tu club.`),
     }),
   })
 }

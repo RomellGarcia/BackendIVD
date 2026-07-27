@@ -1,13 +1,11 @@
 import { pool } from '../config/db.js'
 import { supabase } from '../config/supabase.js'
 
-//Genera un código de 6 dígitos y lo guarda con 15 minutos de vigencia
-//Genera un código de 6 dígitos y lo guarda con 15 minutos de vigencia
-//(el "ya expiró en" lo calcula Postgres con su propio reloj, para que
-//nunca se desincronice con la zona horaria de la máquina que corre Node)
+// Genera código de 6 dígitos con vigencia de 15 minutos (expiración calculada en Postgres)
 export const crearCodigo = async (email) => {
   const codigo = Math.floor(100000 + Math.random() * 900000).toString()
 
+  // Limpieza de códigos expirados o previos no usados
   await pool.query(`DELETE FROM codigos_recuperacion WHERE expira_en < NOW()`)
   await pool.query(`DELETE FROM codigos_recuperacion WHERE email = $1 AND usado = false`, [email])
 
@@ -19,7 +17,7 @@ export const crearCodigo = async (email) => {
   return codigo
 }
 
-//Busca el usuario por email (para saber su nombre y su supabase_uid)
+// Busca usuario por email para obtener nombre y supabase_uid
 export const findUsuarioPorEmail = async (email) => {
   const { rows } = await pool.query(
     `SELECT id, nombre, email, supabase_uid FROM usuarios WHERE email = $1`,
@@ -28,7 +26,7 @@ export const findUsuarioPorEmail = async (email) => {
   return rows[0] || null
 }
 
-//Verifica que el código sea válido, no haya expirado y no se haya usado antes
+// Verifica que el código sea válido, no expirado y no usado
 export const validarCodigo = async (email, codigo) => {
   const { rows } = await pool.query(
     `SELECT id FROM codigos_recuperacion
@@ -40,13 +38,12 @@ export const validarCodigo = async (email, codigo) => {
   return rows[0] || null
 }
 
+// Marca el código como usado para evitar reutilización
 export const marcarCodigoUsado = async (id) => {
   await pool.query(`UPDATE codigos_recuperacion SET usado = true WHERE id = $1`, [id])
 }
 
-//Cambia la contraseña real del usuario en Supabase Auth. Requiere el
-//cliente creado con SUPABASE_SERVICE_ROLE_KEY (el único con permiso
-//para actualizar la contraseña de otra cuenta).
+// Actualiza la contraseña en Supabase Auth (requiere service role key)
 export const actualizarPasswordSupabase = async (supabaseUid, nuevaPassword) => {
   const { error } = await supabase.auth.admin.updateUserById(supabaseUid, { password: nuevaPassword })
   if (error) throw new Error(error.message)

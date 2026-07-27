@@ -1,10 +1,17 @@
 import { pool } from '../config/db.js'
 import * as NotificacionModel from './notificacion.model.js'
-import { sendConvocatoriaCanceladaEmail, sendEventoCanceladoEmail, sendConvocatoriaCanceladaClubEmail, sendEventoCanceladoClubEmail, sendConvocatoriaFinalizadaEmail, sendEventoFinalizadoEmail, sendConvocatoriaFinalizadaClubEmail, sendEventoFinalizadoClubEmail } from '../services/email.service.js'
+import {
+  sendConvocatoriaCanceladaEmail,
+  sendEventoCanceladoEmail,
+  sendConvocatoriaCanceladaClubEmail,
+  sendEventoCanceladoClubEmail,
+  sendConvocatoriaFinalizadaEmail,
+  sendEventoFinalizadoEmail,
+  sendConvocatoriaFinalizadaClubEmail,
+  sendEventoFinalizadoClubEmail
+} from '../services/email.service.js'
 
-//Todos los eventos activos
-//Eventos. Por default solo trae los activos (para atletas/clubes); el
-//admin puede pedir `todos=true` para ver también los cerrados.
+// Lista eventos activos (opcionalmente todos si admin pide todos=true)
 export const findAll = async (limit, todos = false) => {
   const query = `
     SELECT
@@ -39,7 +46,7 @@ export const findAll = async (limit, todos = false) => {
   return rows
 }
 
-//Un evento por ID con sus convocatorias
+// Obtiene un evento por ID con sus convocatorias
 export const findById = async (id) => {
   const { rows } = await pool.query(
     `SELECT
@@ -75,7 +82,7 @@ export const findById = async (id) => {
   return rows[0] || null
 }
 
-//Crear evento y sus convocatorias en una transacción
+// Crea evento con sus convocatorias (transacción)
 export const create = async ({
   titulo, fecha, hora, lugar, descripcion, fecha_cierre, imagen_url,
   documento_convocatoria_url, documento_deslinde_url, convocatorias
@@ -114,7 +121,8 @@ export const create = async ({
     client.release()
   }
 }
-//Actualizar fecha de cierre
+
+// Actualiza solo la fecha de cierre del evento
 export const updateFechaCierre = async (id, fecha_cierre) => {
   const { rows } = await pool.query(
     `UPDATE eventos SET fecha_cierre = $1 WHERE id = $2 RETURNING *`,
@@ -123,41 +131,7 @@ export const updateFechaCierre = async (id, fecha_cierre) => {
   return rows[0] || null
 }
 
-//Convocatorias disponibles para un atleta (filtra por edad y género)
-export const findConvocatoriasParaAtleta = async (atletaId) => {
-  const { rows } = await pool.query(
-    `SELECT
-      e.id AS evento_id, e.titulo, e.fecha, e.hora,
-      e.lugar, e.descripcion, e.fecha_cierre, e.imagen_url,
-      c.id AS convocatoria_id,
-      d.nombre AS disciplina,
-      cat.nombre AS categoria, cat.edad_min, cat.edad_max,
-      g.nombre AS genero
-     FROM convocatorias c
-     JOIN eventos e    ON c.evento_id = e.id
-     JOIN disciplinas d  ON c.disciplina_id = d.id
-     JOIN categorias cat ON c.categoria_id = cat.id
-     JOIN generos g      ON c.genero_id = g.id
-     JOIN atletas a      ON a.id = $1
-     JOIN usuarios u     ON a.usuario_id = u.id
-     WHERE e.estado = true
-       AND e.fecha_cierre > NOW()
-       AND c.estado = true
-       AND (
-         DATE_PART('year', AGE(u.fecha_nacimiento)) BETWEEN cat.edad_min AND cat.edad_max
-       )
-       AND (
-         g.nombre = u_genero.nombre OR g.nombre = 'mixto'
-       )
-     JOIN generos u_genero ON u.genero_id = u_genero.id
-     ORDER BY e.fecha ASC`,
-    [atletaId]
-  )
-  return rows
-}
-
-
-//Actualizar datos generales del evento (no toca convocatorias ni archivos)
+// Actualiza datos generales del evento
 export const update = async (id, fields) => {
   const {
     titulo, fecha, hora, lugar, descripcion, fecha_cierre,
@@ -194,7 +168,7 @@ export const update = async (id, fields) => {
   return findById(id)
 }
 
-//Marcar evento como activo/cerrado (no lo borra, solo cambia el estado)
+// Activa o desactiva un evento
 export const toggleEstado = async (id, estado) => {
   const { rows } = await pool.query(
     `UPDATE eventos SET estado = $1 WHERE id = $2 RETURNING *`,
@@ -203,9 +177,7 @@ export const toggleEstado = async (id, estado) => {
   return rows[0] || null
 }
 
-//AGREGAR AL FINAL DE evento.model.js
-
-//Convocatorias de un evento, con el estado de su documento de resultados
+// Lista convocatorias de un evento con datos de su documento de resultados
 export const findConvocatoriasByEvento = async (eventoId) => {
   const { rows } = await pool.query(
     `SELECT
@@ -225,13 +197,13 @@ export const findConvocatoriasByEvento = async (eventoId) => {
   return rows
 }
 
-//Una convocatoria por id (para saber si ya tenía un documento antes de reemplazarlo)
+// Obtiene una convocatoria por ID
 export const findConvocatoriaById = async (convocatoriaId) => {
   const { rows } = await pool.query(`SELECT * FROM convocatorias WHERE id = $1`, [convocatoriaId])
   return rows[0] || null
 }
 
-//Guardar/reemplazar el documento de resultados de una convocatoria
+// Guarda o reemplaza el documento de resultados de una convocatoria
 export const subirDocumentoResultado = async (convocatoriaId, { url, publicId }) => {
   const { rows } = await pool.query(
     `UPDATE convocatorias
@@ -243,8 +215,7 @@ export const subirDocumentoResultado = async (convocatoriaId, { url, publicId })
   return rows[0] || null
 }
 
-//Quitar el documento de resultados (regresa el public_id viejo para poder
-//borrarlo de Cloudinary desde el controlador)
+// Elimina el documento de resultados (devuelve el public_id para borrar de Cloudinary)
 export const eliminarDocumentoResultado = async (convocatoriaId) => {
   const { rows } = await pool.query(
     `SELECT documento_resultado_public_id FROM convocatorias WHERE id = $1`,
@@ -258,9 +229,7 @@ export const eliminarDocumentoResultado = async (convocatoriaId) => {
   return publicId
 }
 
-//Elimina una convocatoria por completo. Si tenía atletas inscritos, los saca
-//automáticamente y notifica a cada atleta (sistema + correo) y a su club,
-//si pertenece a uno (sistema + correo).
+// Elimina una convocatoria, notifica a inscritos y sus clubes
 export const removeConvocatoria = async (convocatoriaId) => {
   const client = await pool.connect()
   try {
@@ -278,7 +247,7 @@ export const removeConvocatoria = async (convocatoriaId) => {
     const convocatoria = convRows[0]
     if (!convocatoria) { await client.query('ROLLBACK'); return { error: 'Convocatoria no encontrada' } }
 
-    // Atletas inscritos, con su correo y el club al que pertenecen (si aplica)
+    // Obtener inscritos con sus datos de contacto y club
     const { rows: inscritos } = await client.query(
       `SELECT a.usuario_id, u.email, u.nombre,
               cl.id AS club_id, cl.email AS club_email, cl.nombre AS club_nombre
@@ -290,15 +259,16 @@ export const removeConvocatoria = async (convocatoriaId) => {
       [convocatoriaId]
     )
 
+    // Eliminar inscripciones y convocatoria
     await client.query(`DELETE FROM inscripciones WHERE convocatoria_id = $1`, [convocatoriaId])
     await client.query(`DELETE FROM convocatorias WHERE id = $1`, [convocatoriaId])
 
     await client.query('COMMIT')
 
+    // Notificaciones y correos
     if (inscritos.length > 0) {
       const mensaje = `Tu inscripción a "${convocatoria.disciplina} - ${convocatoria.categoria}" del evento "${convocatoria.evento_titulo}" fue cancelada porque esa convocatoria fue eliminada.`
 
-      // Notificaciones dentro del sistema
       await NotificacionModel.crearParaVarios(inscritos.map(i => i.usuario_id), mensaje)
 
       const clubesUnicos = [...new Map(
@@ -310,7 +280,6 @@ export const removeConvocatoria = async (convocatoriaId) => {
         await NotificacionModel.crearParaClub(club.club_id, mensajeClub)
       }
 
-      // Correos — no bloqueamos la respuesta si el envío falla
       for (const atleta of inscritos) {
         sendConvocatoriaCanceladaEmail({
           to: atleta.email,
@@ -342,10 +311,7 @@ export const removeConvocatoria = async (convocatoriaId) => {
   }
 }
 
-//Elimina el evento completo (todas sus convocatorias e inscripciones).
-//Notifica (sistema + correo) a todos los atletas afectados y a sus clubes.
-//Regresa los public_id de Cloudinary para que el controlador los borre
-//después (fuera de la transacción, ya que es una llamada externa a otra API).
+// Elimina evento completo, notifica a inscritos y devuelve IDs de archivos para borrar de Cloudinary
 export const remove = async (id) => {
   const client = await pool.connect()
   try {
@@ -371,6 +337,7 @@ export const remove = async (id) => {
       [id]
     )
 
+    // Eliminar inscripciones, convocatorias y evento
     await client.query(
       `DELETE FROM inscripciones WHERE convocatoria_id IN (SELECT id FROM convocatorias WHERE evento_id = $1)`,
       [id]
@@ -380,6 +347,7 @@ export const remove = async (id) => {
 
     await client.query('COMMIT')
 
+    // Notificaciones y correos
     if (inscritos.length > 0) {
       const mensaje = `Tu inscripción al evento "${evento.titulo}" fue cancelada porque el evento fue eliminado.`
       await NotificacionModel.crearParaVarios(inscritos.map(i => i.usuario_id), mensaje)
@@ -428,9 +396,7 @@ export const remove = async (id) => {
   }
 }
 
-//Chequeo interno: ¿ya existe una convocatoria con esta misma
-//disciplina+categoría+género en este evento? (excluyendo, opcionalmente,
-//una convocatoria específica — para permitir editar sin chocar consigo misma)
+// Verifica si ya existe una convocatoria duplicada en el mismo evento
 const existeConvocatoriaDuplicada = async (evento_id, disciplina_id, categoria_id, genero_id, excluirId = null) => {
   const params = [evento_id, disciplina_id, categoria_id, genero_id]
   let query = `SELECT id FROM convocatorias WHERE evento_id = $1 AND disciplina_id = $2 AND categoria_id = $3 AND genero_id = $4`
@@ -442,7 +408,7 @@ const existeConvocatoriaDuplicada = async (evento_id, disciplina_id, categoria_i
   return rows.length > 0
 }
 
-//Agregar convocatoria a un evento existente
+// Agrega una nueva convocatoria a un evento existente
 export const addConvocatoria = async (eventoId, { disciplina_id, categoria_id, genero_id, hora }) => {
   if (await existeConvocatoriaDuplicada(eventoId, disciplina_id, categoria_id, genero_id)) {
     return { error: 'Ya existe una convocatoria con esa disciplina, categoría y género para este evento.' }
@@ -456,7 +422,7 @@ export const addConvocatoria = async (eventoId, { disciplina_id, categoria_id, g
   return rows[0]
 }
 
-//Actualizar disciplina/categoría/género/hora de una convocatoria existente
+// Actualiza los datos de una convocatoria existente
 export const updateConvocatoria = async (convocatoriaId, { disciplina_id, categoria_id, genero_id, hora }) => {
   const { rows: actual } = await pool.query(`SELECT evento_id FROM convocatorias WHERE id = $1`, [convocatoriaId])
   if (!actual[0]) return null
@@ -496,18 +462,8 @@ export const updateConvocatoria = async (convocatoriaId, { disciplina_id, catego
   )
   return joined[0]
 }
-// "Finalizar" una convocatoria: reutiliza la misma columna `estado` que ya
-// se usa para saber si acepta inscripciones (ver findConvocatoriasParaAtleta,
-// que ya filtra `c.estado = true`). Al poner estado = false, la convocatoria
-// deja de salir como disponible para atletas SIN borrar nada: el evento,
-// las inscripciones, los resultados y el documento oficial siguen intactos
-// y consultables por el admin. estado = true la reabre.
-//
-// Cascada hacia arriba: si al cerrar esta convocatoria ya no queda NINGUNA
-// abierta en el evento, el evento se marca `finalizado` automáticamente
-// (mismo campo que usa toggleFinalizadoEvento). Al reabrir una convocatoria
-// NO se reabre el evento solo — eso el admin lo decide aparte con el botón
-// de finalizar/reabrir evento.
+
+// Abre o cierra una convocatoria, si es la última abierta, finaliza el evento.
 export const toggleEstadoConvocatoria = async (convocatoriaId, estado) => {
   const client = await pool.connect()
   try {
@@ -531,7 +487,7 @@ export const toggleEstadoConvocatoria = async (convocatoriaId, estado) => {
         await client.query(`UPDATE eventos SET finalizado = true WHERE id = $1`, [convocatoria.evento_id])
       }
 
-      // Avisar a los inscritos de que su convocatoria finalizó.
+      // Notificar a inscritos que la convocatoria finalizó
       const { rows: datos } = await client.query(
         `SELECT e.titulo AS evento_titulo, d.nombre AS disciplina, cat.nombre AS categoria
          FROM eventos e
@@ -596,19 +552,7 @@ export const toggleEstadoConvocatoria = async (convocatoriaId, estado) => {
   }
 }
 
-// Finaliza (o reabre) un evento manualmente. Al finalizar, en la MISMA
-// transacción se cierran también todas sus convocatorias (estado = false)
-// para que dejen de aparecer como disponibles para inscribirse — igual
-// que ya pasa cuando se finaliza una convocatoria individual desde
-// GestionResultados. Al reabrir (finalizado = false) NO se reabren las
-// convocatorias automáticamente: el admin las reabre una por una si
-// hace falta, para no reactivar por accidente inscripciones vencidas.
-//
-// Nota: un evento también se considera "terminado" automáticamente en el
-// frontend cuando su `fecha` ya pasó, sin necesidad de este flag — este
-// campo es solo para cuando el admin quiere cerrarlo ANTES de esa fecha
-// (o reabrirlo). Requiere la columna `finalizado boolean default false`
-// en la tabla `eventos` (migración pendiente, ver mensaje aparte).
+// Finaliza o reabre un evento manualmente, al finalizar cierra todas sus convocatorias.
 export const toggleFinalizadoEvento = async (eventoId, finalizado) => {
   const client = await pool.connect()
   try {
@@ -626,8 +570,6 @@ export const toggleFinalizadoEvento = async (eventoId, finalizado) => {
     if (finalizado) {
       await client.query(`UPDATE convocatorias SET estado = false WHERE evento_id = $1`, [eventoId])
 
-      // Avisar a todos los inscritos (en cualquiera de sus convocatorias)
-      // de que el evento finalizó.
       const { rows: inscritos } = await client.query(
         `SELECT DISTINCT u.id AS usuario_id, u.nombre, u.email,
                 cl.id AS club_id, cl.email AS club_email, cl.nombre AS club_nombre

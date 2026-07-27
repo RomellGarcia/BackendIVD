@@ -1,5 +1,6 @@
 import * as EntrenadoresModel from '../models/entrenadores.model.js'
 
+// Lista todos los entrenadores con filtros opcionales
 export const getAll = async (req, res, next) => {
   try {
     const { club_id, sin_club } = req.query
@@ -11,6 +12,7 @@ export const getAll = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Obtiene entrenadores de un club específico
 export const getByClub = async (req, res, next) => {
   try {
     const entrenadores = await EntrenadoresModel.findByClub(req.params.clubId)
@@ -18,6 +20,7 @@ export const getByClub = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Obtiene un entrenador por ID
 export const getById = async (req, res, next) => {
   try {
     const entrenador = await EntrenadoresModel.findById(req.params.id)
@@ -26,9 +29,7 @@ export const getById = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-//AJUSTE: se agrega el filtro opcional `tipo` para separar, del lado del
-//club, las solicitudes recibidas de entrenadores de las invitaciones que
-//el propio club envió.
+// Obtiene solicitudes de club para un entrenador (filtro opcional por tipo)
 export const getSolicitudesByClub = async (req, res, next) => {
   try {
     const solicitudes = await EntrenadoresModel.findSolicitudesByClub(
@@ -39,29 +40,33 @@ export const getSolicitudesByClub = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Actualiza el estado de una solicitud (aceptada/rechazada)
 export const updateSolicitud = async (req, res, next) => {
   try {
-    const solicitud = await EntrenadoresModel.updateSolicitud(
+    const solicitudActualizada = await EntrenadoresModel.updateSolicitud(
       req.params.solicitudId,
-      req.body.estado
+      req.body.estado,
+      { clubId: req.clubId ?? null, entrenadorId: req.entrenadorId ?? null }
     )
-    if (!solicitud) return res.status(404).json({ error: 'Solicitud no encontrada' })
-    res.json({ mensaje: 'Solicitud actualizada correctamente', solicitud })
+    if (solicitudActualizada?.error) return res.status(403).json({ error: solicitudActualizada.error })
+    if (!solicitudActualizada) return res.status(404).json({ error: 'Solicitud no encontrada' })
+    res.json({ mensaje: 'Solicitud actualizada correctamente', solicitud: solicitudActualizada })
   } catch (err) { next(err) }
 }
 
-//NUEVO: el club invita a un entrenador independiente.
+// Invita a un entrenador independiente a un club (club_id viene en body)
 export const invitarClub = async (req, res, next) => {
   try {
-    const result = await EntrenadoresModel.crearInvitacionClub({
+    const invitacion = await EntrenadoresModel.crearInvitacionClub({
       entrenadorId: req.params.id,
       clubId: req.body.club_id
     })
-    if (result.error) return res.status(400).json({ error: result.error })
-    res.status(201).json({ mensaje: 'Invitación enviada correctamente', solicitud: result.solicitud })
+    if (invitacion.error) return res.status(400).json({ error: invitacion.error })
+    res.status(201).json({ mensaje: 'Invitación enviada correctamente', solicitud: invitacion.solicitud })
   } catch (err) { next(err) }
 }
 
+// Actualiza un entrenador por parte del administrador
 export const updateAdmin = async (req, res, next) => {
   try {
     const entrenador = await EntrenadoresModel.updateAdmin(req.params.id, req.body)
@@ -70,10 +75,22 @@ export const updateAdmin = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Asigna o quita un club a un entrenador (verifica permisos según rol)
 export const updateClub = async (req, res, next) => {
   try {
-    const entrenador = await EntrenadoresModel.updateClub(req.params.id, req.body.club_id)
-    if (!entrenador) return res.status(404).json({ error: 'Entrenador no encontrado' })
-    res.json({ mensaje: 'Club actualizado correctamente', entrenador })
+    const actorClubId = req.esAdmin ? null : req.clubId
+    const resultado = await EntrenadoresModel.updateClub(req.params.id, req.body.club_id, actorClubId)
+    if (resultado?.error) return res.status(403).json({ error: resultado.error })
+    if (!resultado) return res.status(404).json({ error: 'Entrenador no encontrado' })
+    res.json({ mensaje: 'Club actualizado correctamente', entrenador: resultado })
+  } catch (err) { next(err) }
+}
+
+// Elimina un entrenador (solo admin) - bloqueado si tiene resultados asociados
+export const remove = async (req, res, next) => {
+  try {
+    const resultado = await EntrenadoresModel.remove(req.params.id)
+    if (resultado.error) return res.status(400).json({ error: resultado.error })
+    res.json({ mensaje: 'Entrenador eliminado correctamente' })
   } catch (err) { next(err) }
 }

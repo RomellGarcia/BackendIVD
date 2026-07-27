@@ -6,9 +6,13 @@ import { registerSchema, loginSchema } from '../schemas/auth.schema.js'
 
 const router = Router()
 
+// Registro de nuevo usuario
 router.post('/register', validate(registerSchema), register)
-router.post('/login',    validate(loginSchema),    login)
-router.post('/logout',   requireAuth,              logout)
-router.get('/me',        requireAuth,              me)
+// Inicio de sesión
+router.post('/login', validate(loginSchema), login)
+// Cierre de sesión (requiere autenticación)
+router.post('/logout', requireAuth, logout)
+// Obtener perfil del usuario autenticado
+router.get('/me', requireAuth, me)
 
 export default router

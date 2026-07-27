@@ -1,6 +1,8 @@
 import { pool } from '../config/db.js'
+import * as NotificacionModel from './notificacion.model.js'
+import { sendEntrenadorSalioClubEmail, sendSalidaClubEmail } from '../services/email.service.js'
 
-//Perfil completo del entrenador (el que está logueado)
+// Perfil completo del entrenador logueado
 export const findByUsuarioId = async (usuarioId) => {
   const { rows } = await pool.query(
     `SELECT
@@ -10,19 +12,21 @@ export const findByUsuarioId = async (usuarioId) => {
       g.nombre AS genero,
       c.id AS club_id, c.nombre AS club_nombre,
       COALESCE(
-        JSON_AGG(DISTINCT jsonb_build_object('id', ce.id, 'nombre', ce.nombre))
-        FILTER (WHERE ce.id IS NOT NULL), '[]'
+        JSON_AGG(DISTINCT jsonb_build_object('id', cc.id, 'nombre', cc.nombre))
+        FILTER (WHERE cc.id IS NOT NULL), '[]'
       ) AS certificaciones,
       COALESCE(
-        JSON_AGG(DISTINCT jsonb_build_object('id', es.id, 'nombre', es.nombre))
-        FILTER (WHERE es.id IS NOT NULL), '[]'
+        JSON_AGG(DISTINCT jsonb_build_object('id', ec.id, 'nombre', ec.nombre))
+        FILTER (WHERE ec.id IS NOT NULL), '[]'
       ) AS especialidades
      FROM entrenadores e
      JOIN usuarios u ON e.usuario_id = u.id
      LEFT JOIN generos g ON u.genero_id = g.id
      LEFT JOIN clubes c ON e.club_id = c.id
-     LEFT JOIN certificaciones ce ON ce.entrenador_id = e.id
-     LEFT JOIN especialidades es ON es.entrenador_id = e.id
+     LEFT JOIN entrenador_certificaciones tc ON tc.entrenador_id = e.id
+     LEFT JOIN certificaciones_catalogo cc   ON cc.id = tc.certificacion_id
+     LEFT JOIN entrenador_especialidades te  ON te.entrenador_id = e.id
+     LEFT JOIN especialidades_catalogo ec    ON ec.id = te.especialidad_id
      WHERE e.usuario_id = $1
      GROUP BY e.id, u.nombre, u.apellido_paterno, u.apellido_materno,
               u.email, u.telefono, u.fecha_nacimiento, u.curp,
@@ -32,7 +36,7 @@ export const findByUsuarioId = async (usuarioId) => {
   return rows[0] || null
 }
 
-//Obtener atletas del mismo club que el entrenador
+// Atletas del mismo club que el entrenador
 export const findAtletasByEntrenador = async (entrenadorId) => {
   const { rows } = await pool.query(
     `SELECT
@@ -52,7 +56,7 @@ export const findAtletasByEntrenador = async (entrenadorId) => {
   return rows
 }
 
-//Stats del entrenador para su dashboard
+// Estadísticas para el dashboard del entrenador
 export const getStats = async (entrenadorId) => {
   const { rows } = await pool.query(
     `SELECT
@@ -68,7 +72,7 @@ export const getStats = async (entrenadorId) => {
   return rows[0] || { total_atletas: 0, eventos_proximos: 0 }
 }
 
-//Actividad reciente: próximos 5 eventos
+// Próximos 5 eventos (actividad reciente)
 export const getActividad = async () => {
   const { rows } = await pool.query(
     `SELECT id, titulo, lugar, fecha, descripcion
@@ -85,9 +89,8 @@ export const getActividad = async () => {
   }))
 }
 
-//Solicitar unirse a un club
+// Solicita unirse a un club
 export const crearSolicitudClub = async ({ entrenadorId, clubId, mensaje }) => {
-  // Verificar si ya hay solicitud pendiente o aceptada
   const { rows: existente } = await pool.query(
     `SELECT id FROM solicitudes_entrenadores
      WHERE entrenador_id = $1 AND club_id = $2
@@ -105,7 +108,7 @@ export const crearSolicitudClub = async ({ entrenadorId, clubId, mensaje }) => {
   return { solicitud: rows[0] }
 }
 
-//Solicitudes enviadas por el entrenador
+// Solicitudes enviadas por el entrenador
 export const findSolicitudesByEntrenador = async (entrenadorId) => {
   const { rows } = await pool.query(
     `SELECT
@@ -121,7 +124,7 @@ export const findSolicitudesByEntrenador = async (entrenadorId) => {
   return rows
 }
 
-//Actualizar perfil (datos en usuarios + datos en entrenadores)
+// Actualiza datos del perfil (telefono y años de experiencia)
 export const updatePerfil = async (entrenadorId, usuarioId, { telefono, anos_experiencia }) => {
   if (telefono !== undefined) {
     await pool.query(
@@ -137,24 +140,116 @@ export const updatePerfil = async (entrenadorId, usuarioId, { telefono, anos_exp
   }
 }
 
-//Reemplazar certificaciones del entrenador
+// Busca o crea un registro en un catálogo (certificaciones o especialidades)
+const buscarOCrearEnCatalogo = async (client, tabla, nombre) => {
+  const limpio = nombre.trim()
+  const { rows: existente } = await client.query(
+    `SELECT id FROM ${tabla} WHERE LOWER(nombre) = LOWER($1)`,
+    [limpio]
+  )
+  if (existente[0]) return existente[0].id
+
+  const { rows: nuevo } = await client.query(
+    `INSERT INTO ${tabla} (nombre) VALUES ($1) RETURNING id`,
+    [limpio]
+  )
+  return nuevo[0].id
+}
+
+// Reemplaza las certificaciones del entrenador (usa/crea catálogo)
 export const updateCertificaciones = async (entrenadorId, certificaciones = []) => {
-  await pool.query(`DELETE FROM certificaciones WHERE entrenador_id = $1`, [entrenadorId])
-  for (const nombre of certificaciones) {
-    await pool.query(
-      `INSERT INTO certificaciones (entrenador_id, nombre) VALUES ($1, $2)`,
-      [entrenadorId, nombre]
-    )
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await client.query(`DELETE FROM entrenador_certificaciones WHERE entrenador_id = $1`, [entrenadorId])
+    for (const nombre of certificaciones) {
+      if (!nombre?.trim()) continue
+      const certificacionId = await buscarOCrearEnCatalogo(client, 'certificaciones_catalogo', nombre)
+      await client.query(
+        `INSERT INTO entrenador_certificaciones (entrenador_id, certificacion_id)
+         VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [entrenadorId, certificacionId]
+      )
+    }
+    await client.query('COMMIT')
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
   }
 }
 
-//Reemplazar especialidades del entrenador
+// Sugerencias para autocompletar certificaciones (desde catálogo)
+export const findCertificacionesSugeridas = async () => {
+  const { rows } = await pool.query(
+    `SELECT nombre FROM certificaciones_catalogo ORDER BY nombre ASC`
+  )
+  return rows.map((r) => r.nombre)
+}
+
+// Reemplaza las especialidades del entrenador (usa/crea catálogo)
 export const updateEspecialidades = async (entrenadorId, especialidades = []) => {
-  await pool.query(`DELETE FROM especialidades WHERE entrenador_id = $1`, [entrenadorId])
-  for (const nombre of especialidades) {
-    await pool.query(
-      `INSERT INTO especialidades (entrenador_id, nombre) VALUES ($1, $2)`,
-      [entrenadorId, nombre]
-    )
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await client.query(`DELETE FROM entrenador_especialidades WHERE entrenador_id = $1`, [entrenadorId])
+    for (const nombre of especialidades) {
+      if (!nombre?.trim()) continue
+      const especialidadId = await buscarOCrearEnCatalogo(client, 'especialidades_catalogo', nombre)
+      await client.query(
+        `INSERT INTO entrenador_especialidades (entrenador_id, especialidad_id)
+         VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [entrenadorId, especialidadId]
+      )
+    }
+    await client.query('COMMIT')
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
   }
+}
+
+// Sugerencias para autocompletar especialidades (desde catálogo)
+export const findEspecialidadesSugeridas = async () => {
+  const { rows } = await pool.query(
+    `SELECT nombre FROM especialidades_catalogo ORDER BY nombre ASC`
+  )
+  return rows.map((r) => r.nombre)
+}
+
+// El entrenador sale voluntariamente de su club
+export const salirDelClub = async (entrenadorId) => {
+  const { rows } = await pool.query(
+    `SELECT c.id AS club_id, c.email AS club_email, c.nombre AS club_nombre,
+            u.nombre AS entrenador_nombre, u.email AS entrenador_email
+     FROM entrenadores e
+     JOIN usuarios u     ON e.usuario_id = u.id
+     LEFT JOIN clubes c  ON e.club_id = c.id
+     WHERE e.id = $1`,
+    [entrenadorId]
+  )
+  const info = rows[0]
+  if (!info) return { error: 'Entrenador no encontrado' }
+  if (!info.club_id) return { error: 'No perteneces a ningún club actualmente' }
+
+  await pool.query(`UPDATE entrenadores SET club_id = NULL WHERE id = $1`, [entrenadorId])
+
+  try {
+    await NotificacionModel.crearParaClub(info.club_id, `El entrenador "${info.entrenador_nombre}" salió de tu club.`)
+    const { rows: usuarioRows } = await pool.query(`SELECT usuario_id FROM entrenadores WHERE id = $1`, [entrenadorId])
+    if (usuarioRows[0]) {
+      await NotificacionModel.crear(usuarioRows[0].usuario_id, `Ya no perteneces al club "${info.club_nombre}".`)
+    }
+    await sendEntrenadorSalioClubEmail({ to: info.club_email, clubNombre: info.club_nombre, entrenadorNombre: info.entrenador_nombre })
+    if (info.entrenador_email) {
+      await sendSalidaClubEmail({ to: info.entrenador_email, nombre: info.entrenador_nombre, clubNombre: info.club_nombre })
+    }
+  } catch (err) {
+    console.error('No se pudo notificar la salida del club:', err)
+  }
+
+  return { ok: true }
 }

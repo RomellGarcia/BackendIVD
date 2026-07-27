@@ -2,24 +2,26 @@ import { supabase } from '../config/supabase.js'
 import { findBySupabaseUid } from '../models/usuario.model.js'
 import { pool } from '../config/db.js'
 
+// Registro de usuario según rol (atleta, club, entrenador, admin)
 export const register = async (req, res, next) => {
   try {
     const { email, password, rol } = req.body
 
-    let metadata = {}
+    // Metadatos que se guardarán en Supabase Auth
+    let userMetadata = {}
 
     if (rol === 'club') {
-      // Club: solo necesita nombre, telefono y datos básicos
+      // Club: solo datos básicos
       const { nombre, telefono, direccion, descripcion } = req.body
-      metadata = { nombre, telefono, direccion, descripcion, rol: 'club' }
+      userMetadata = { nombre, telefono, direccion, descripcion, rol: 'club' }
     } else {
-      // Atleta o Entrenador: datos personales completos
+      // Atleta o entrenador: datos personales completos
       const {
         nombre, apellido_paterno, apellido_materno,
         fecha_nacimiento, telefono, curp,
         estado_nacimiento, genero, municipio
       } = req.body
-      metadata = {
+      userMetadata = {
         nombre, apellido_paterno, apellido_materno,
         fecha_nacimiento, telefono, curp,
         estado_nacimiento, genero, municipio,
@@ -30,7 +32,7 @@ export const register = async (req, res, next) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: metadata }
+      options: { data: userMetadata }
     })
 
     if (error) return res.status(400).json({ error: error.message })
@@ -44,12 +46,13 @@ export const register = async (req, res, next) => {
   }
 }
 
+// Inicio de sesión (email o CURP)
 export const login = async (req, res, next) => {
   try {
     const { email, curp, password, rol } = req.body
     let emailToUse = email
 
-    // Si viene CURP en lugar de email
+    // Si se envía CURP en lugar de email, obtenemos el email desde la BD
     if (curp && !email) {
       const { rows } = await pool.query(
         `SELECT u.email, r.nombre AS rol
@@ -62,12 +65,9 @@ export const login = async (req, res, next) => {
         return res.status(401).json({ error: 'La CURP ingresada no existe' })
       }
 
-      // Validar rol antes de intentar login
-      if (rol && rows[0].rol !== mapRol(rol)) {
-        // DESPUÉS:
-        return res.status(401).json({
-          error: 'Credenciales incorrectas'
-        })
+      // Validar rol antes de intentar login (seguridad)
+      if (rol && rows[0].rol !== mapRolFrontendToDB(rol)) {
+        return res.status(401).json({ error: 'Credenciales incorrectas' })
       }
 
       emailToUse = rows[0].email
@@ -82,11 +82,9 @@ export const login = async (req, res, next) => {
 
     const usuario = await findBySupabaseUid(data.user.id)
 
-    // Validar que el rol seleccionado coincida con el rol real
-    if (rol && usuario.rol !== mapRol(rol)) {
-      return res.status(401).json({
-        error: 'Credenciales incorrectas'
-      })
+    // Validar que el rol seleccionado coincida con el rol real del usuario
+    if (rol && usuario.rol !== mapRolFrontendToDB(rol)) {
+      return res.status(401).json({ error: 'Credenciales incorrectas' })
     }
 
     res.json({
@@ -98,7 +96,8 @@ export const login = async (req, res, next) => {
   }
 }
 
-function mapRol(rolFrontend) {
+// Mapeo de nombres de rol del frontend a los nombres en la BD
+function mapRolFrontendToDB(rolFrontend) {
   const mapa = {
     'atleta': 'atleta',
     'club': 'club',
@@ -108,6 +107,7 @@ function mapRol(rolFrontend) {
   return mapa[rolFrontend] || rolFrontend
 }
 
+// Cierre de sesión (invalida token en Supabase)
 export const logout = async (req, res, next) => {
   try {
     const { error } = await supabase.auth.signOut()
@@ -118,6 +118,7 @@ export const logout = async (req, res, next) => {
   }
 }
 
+// Obtiene los datos del usuario autenticado
 export const me = async (req, res, next) => {
   try {
     const usuario = await findBySupabaseUid(req.user.id)

@@ -1,7 +1,7 @@
 import { pool } from '../config/db.js'
 import cloudinary from 'cloudinary'
 
-//Obtener perfil con sus redes sociales
+// Obtiene perfil de la empresa con sus redes sociales
 export const find = async () => {
   const { rows: perfil } = await pool.query(
     `SELECT
@@ -21,18 +21,18 @@ export const find = async () => {
   return perfil[0] || null
 }
 
-//Actualizar perfil (sin logo)
+// Actualiza datos del perfil y sus redes sociales (transacción)
 export const update = async ({ nombre_empresa, eslogan, direccion, correo, telefono, mostrar_whatsapp, redes }) => {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
 
-    //Obtener el id del perfil existente
-    const { rows: existing } = await client.query(`SELECT id FROM perfil_empresa LIMIT 1`)
-    if (!existing[0]) throw new Error('No existe perfil registrado')
-    const empresaId = existing[0].id
+    // Obtener id del perfil existente
+    const { rows: perfilExistente } = await client.query(`SELECT id FROM perfil_empresa LIMIT 1`)
+    if (!perfilExistente[0]) throw new Error('No existe perfil registrado')
+    const empresaId = perfilExistente[0].id
 
-    //Actualizar datos del perfil
+    // Actualizar datos del perfil
     const { rows } = await client.query(
       `UPDATE perfil_empresa
        SET nombre_empresa    = COALESCE($1, nombre_empresa),
@@ -47,7 +47,7 @@ export const update = async ({ nombre_empresa, eslogan, direccion, correo, telef
       [nombre_empresa ?? null, eslogan ?? null, direccion, correo, telefono, mostrar_whatsapp, empresaId]
     )
 
-    // Actualizar redes sociales: borrar y reinsertar
+    // Reemplazar redes sociales (borrar y reinsertar)
     if (redes && Array.isArray(redes)) {
       await client.query(`DELETE FROM redes_sociales WHERE empresa_id = $1`, [empresaId])
       for (const red of redes) {
@@ -70,12 +70,12 @@ export const update = async ({ nombre_empresa, eslogan, direccion, correo, telef
   }
 }
 
-//Actualizar solo el logo
+// Actualiza solo el logo, subiendo la imagen a Cloudinary
 export const updateLogo = async (tempFilePath) => {
-  const { rows: existing } = await pool.query(`SELECT id FROM perfil_empresa LIMIT 1`)
-  if (!existing[0]) throw new Error('No existe perfil registrado')
+  const { rows: perfilExistente } = await pool.query(`SELECT id FROM perfil_empresa LIMIT 1`)
+  if (!perfilExistente[0]) throw new Error('No existe perfil registrado')
 
-  const result = await cloudinary.v2.uploader.upload(tempFilePath, {
+  const resultadoSubida = await cloudinary.v2.uploader.upload(tempFilePath, {
     folder: 'instituto-veracruzano-deporte/perfil'
   })
 
@@ -84,7 +84,7 @@ export const updateLogo = async (tempFilePath) => {
      SET logo = $1, fecha_actualizacion = CURRENT_TIMESTAMP
      WHERE id = $2
      RETURNING logo`,
-    [result.secure_url, existing[0].id]
+    [resultadoSubida.secure_url, perfilExistente[0].id]
   )
   return rows[0]
 }

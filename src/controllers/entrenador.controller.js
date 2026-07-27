@@ -1,22 +1,23 @@
 import * as EntrenadorModel from '../models/entrenador.model.js'
 
-// Obtener perfil del entrenador logueado necesitamos el id interno de usuarios via supabase_uid
+// Obtiene perfil del entrenador autenticado
 export const getPerfil = async (req, res, next) => {
   try {
-    // req.entrenador lo setea el middleware checkEntrenador
     const perfil = await EntrenadorModel.findByUsuarioId(req.usuarioId)
     if (!perfil) return res.status(404).json({ error: 'Perfil de entrenador no encontrado' })
     res.json({ entrenador: perfil })
   } catch (err) { next(err) }
 }
 
+// Obtiene estadísticas del entrenador
 export const getStats = async (req, res, next) => {
   try {
-    const stats = await EntrenadorModel.getStats(req.entrenadorId)
-    res.json({ stats })
+    const estadisticas = await EntrenadorModel.getStats(req.entrenadorId)
+    res.json({ stats: estadisticas })
   } catch (err) { next(err) }
 }
 
+// Obtiene actividades recientes del entrenador
 export const getActividad = async (req, res, next) => {
   try {
     const actividad = await EntrenadorModel.getActividad()
@@ -24,6 +25,7 @@ export const getActividad = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Lista atletas asignados al entrenador
 export const getAtletas = async (req, res, next) => {
   try {
     const atletas = await EntrenadorModel.findAtletasByEntrenador(req.entrenadorId)
@@ -31,6 +33,7 @@ export const getAtletas = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Lista solicitudes pendientes del entrenador para unirse a clubes
 export const getSolicitudes = async (req, res, next) => {
   try {
     const solicitudes = await EntrenadorModel.findSolicitudesByEntrenador(req.entrenadorId)
@@ -38,19 +41,21 @@ export const getSolicitudes = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Envía solicitud de unión a un club
 export const solicitarClub = async (req, res, next) => {
   try {
     const { club_id, mensaje } = req.body
-    const resultado = await EntrenadorModel.crearSolicitudClub({
+    const solicitudCreada = await EntrenadorModel.crearSolicitudClub({
       entrenadorId: req.entrenadorId,
       clubId: club_id,
       mensaje
     })
-    if (resultado.error) return res.status(400).json({ error: resultado.error })
-    res.status(201).json({ mensaje: 'Solicitud enviada correctamente', solicitud: resultado.solicitud })
+    if (solicitudCreada.error) return res.status(400).json({ error: solicitudCreada.error })
+    res.status(201).json({ mensaje: 'Solicitud enviada correctamente', solicitud: solicitudCreada.solicitud })
   } catch (err) { next(err) }
 }
 
+// Actualiza perfil del entrenador 
 export const updatePerfil = async (req, res, next) => {
   try {
     const { telefono, anos_experiencia, certificaciones, especialidades } = req.body
@@ -65,5 +70,30 @@ export const updatePerfil = async (req, res, next) => {
     }
 
     res.json({ mensaje: 'Perfil actualizado correctamente' })
+  } catch (err) { next(err) }
+}
+
+// El entrenador sale de su club actual
+export const salirClub = async (req, res, next) => {
+  try {
+    const resultado = await EntrenadorModel.salirDelClub(req.entrenadorId)
+    if (resultado.error) return res.status(400).json({ error: resultado.error })
+    res.json({ mensaje: 'Saliste del club correctamente' })
+  } catch (err) { next(err) }
+}
+
+// Sugerencias para autocompletar certificaciones 
+export const getCertificacionesSugeridas = async (req, res, next) => {
+  try {
+    const certificaciones = await EntrenadorModel.findCertificacionesSugeridas()
+    res.json({ certificaciones })
+  } catch (err) { next(err) }
+}
+
+// Sugerencias para autocompletar especialidades 
+export const getEspecialidadesSugeridas = async (req, res, next) => {
+  try {
+    const especialidades = await EntrenadorModel.findEspecialidadesSugeridas()
+    res.json({ especialidades })
   } catch (err) { next(err) }
 }

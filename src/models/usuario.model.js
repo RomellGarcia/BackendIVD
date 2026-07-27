@@ -1,5 +1,6 @@
 import { pool } from '../config/db.js'
 
+// Busca un usuario por su UID de Supabase
 export const findBySupabaseUid = async (supabaseUid) => {
   const { rows } = await pool.query(
     `SELECT 
@@ -24,19 +25,15 @@ export const findBySupabaseUid = async (supabaseUid) => {
   return rows[0] || null
 }
 
-//Actualiza los campos compartidos de la tabla usuarios (nombre, apellidos,
-//email, telefono, curp, fecha de nacimiento, estado de nacimiento, genero).
-//Los campos que no se envian (undefined) no se tocan. Usado por admin para
-//editar atletas, entrenadores o cualquier otro rol, ya que estos campos
-//viven en usuarios sin importar el rol de quien los tenga.
+// Actualiza los campos base de la tabla usuarios (nombre, apellidos, email, etc.)
 export const actualizarDatosUsuario = async (usuarioId, {
   nombre, apellido_paterno, apellido_materno, email,
   telefono, curp, fecha_nacimiento, estado_nacimiento, genero
 } = {}) => {
-  let generoId = null
+  let idGenero = null
   if (genero !== undefined) {
     const { rows } = await pool.query(`SELECT id FROM generos WHERE nombre = $1`, [genero])
-    generoId = rows[0]?.id ?? null
+    idGenero = rows[0]?.id ?? null
   }
 
   await pool.query(
@@ -54,19 +51,18 @@ export const actualizarDatosUsuario = async (usuarioId, {
     [
       nombre ?? null, apellido_paterno ?? null, apellido_materno ?? null, email ?? null,
       telefono ?? null, curp ?? null, fecha_nacimiento ?? null, estado_nacimiento ?? null,
-      generoId, usuarioId
+      idGenero, usuarioId
     ]
   )
 }
 
-//Asigna o quita el club de una entidad (atletas o entrenadores). `tipo`
-//solo puede ser una de las llaves controladas aqui abajo -nunca se
-//interpola directamente un valor que venga del cliente en el SQL.
+// Mapeo de tablas que tienen columna club_id
 const TABLAS_CON_CLUB = {
   atletas:      { tabla: 'atletas',      setFechaIngreso: true },
   entrenadores: { tabla: 'entrenadores', setFechaIngreso: false }
 }
 
+// Asigna o quita el club a una entidad 
 export const actualizarClubEntidad = async (tipo, entidadId, clubId) => {
   const config = TABLAS_CON_CLUB[tipo]
   if (!config) throw new Error(`Tipo de entidad no soportado: ${tipo}`)

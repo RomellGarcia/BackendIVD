@@ -26,9 +26,6 @@ export const inscripcionSchema = z.object({
   convocatoria_id: z.number().int().positive()
 })
 
-// Todos los campos opcionales (se puede editar solo disciplina, solo
-// categoría, o las tres), pero se exige al menos uno para evitar
-// llamadas vacías.
 export const updateConvocatoriaSchema = z.object({
   disciplina_id: z.number().int().positive().optional(),
   categoria_id:  z.number().int().positive().optional(),

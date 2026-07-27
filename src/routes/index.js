@@ -8,24 +8,35 @@ import eventoRoutes            from './evento.routes.js'
 import resultadoRoutes         from './resultado.routes.js'
 import contenidoEstaticoRoutes from './contenidoEstatico.routes.js'
 import perfilEmpresaRoutes     from './perfilEmpresa.routes.js'
-import catalogosRoutes from './catalogos.routes.js'
-import notificacionRoutes from './notificacion.routes.js'
-import recuperarRoutes from './recuperarPassword.routes.js'
+import catalogosRoutes         from './catalogos.routes.js'
+import notificacionRoutes      from './notificacion.routes.js'
+import recuperarRoutes         from './recuperarPassword.routes.js'
 
 const router = Router()
 
-router.use('/auth',           authRoutes)
-router.use('/clubes',         clubRoutes)
-router.use('/atletas',        atletaRoutes)
-router.use('/entrenador',     entrenadorRoutes)
-router.use('/entrenadores',   entrenadoresRoutes)
-router.use('/eventos',        eventoRoutes)
-router.use('/resultados',     resultadoRoutes)
-router.use('/contenido',      contenidoEstaticoRoutes)
+// Autenticación y usuarios
+router.use('/auth', authRoutes)
+// Gestión de clubes
+router.use('/clubes', clubRoutes)
+// Atletas (perfil y solicitudes)
+router.use('/atletas', atletaRoutes)
+// Entrenador (perfil propio)
+router.use('/entrenador', entrenadorRoutes)
+// Entrenadores (administración y listados)
+router.use('/entrenadores', entrenadoresRoutes)
+// Eventos y convocatorias
+router.use('/eventos', eventoRoutes)
+// Resultados y estadísticas
+router.use('/resultados', resultadoRoutes)
+// Contenido estático (misión, visión, etc.)
+router.use('/contenido', contenidoEstaticoRoutes)
+// Perfil de la empresa
 router.use('/perfil-empresa', perfilEmpresaRoutes)
+// Catálogos (disciplinas, categorías, géneros)
 router.use('/catalogos', catalogosRoutes)
+// Notificaciones
 router.use('/notificaciones', notificacionRoutes)
+// Recuperación de contraseña
 router.use('/recuperar', recuperarRoutes)
-
 
 export { router }

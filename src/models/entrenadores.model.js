@@ -1,15 +1,22 @@
 import { pool } from '../config/db.js'
 import { actualizarDatosUsuario, actualizarClubEntidad } from './usuario.model.js'
+import * as NotificacionModel from './notificacion.model.js'
+import {
+  sendEntrenadorSalioClubEmail,
+  sendSalidaClubEmail,
+  sendSolicitudAceptadaEmail,
+  sendSolicitudRechazadaEmail,
+  sendInvitacionEntrenadorAceptadaClubEmail
+} from '../services/email.service.js'
 
-//Todos los entrenadores (para el panel de admin), o filtrados por club /
-//sin club (usado por el panel de club para "Entrenadores Disponibles")
+// Lista todos los entrenadores con filtros (club_id, sin_club)
 export const findAll = async ({ clubId, sinClub } = {}) => {
   let whereClause = 'WHERE 1=1'
-  const params = []
+  const parametros = []
 
   if (clubId) {
-    params.push(clubId)
-    whereClause += ` AND e.club_id = $${params.length}`
+    parametros.push(clubId)
+    whereClause += ` AND e.club_id = $${parametros.length}`
   } else if (sinClub) {
     whereClause += ` AND e.club_id IS NULL`
   }
@@ -33,19 +40,21 @@ export const findAll = async ({ clubId, sinClub } = {}) => {
      JOIN usuarios u ON e.usuario_id = u.id
      LEFT JOIN generos g ON u.genero_id = g.id
      LEFT JOIN clubes c ON e.club_id = c.id
-     LEFT JOIN certificaciones ce ON ce.entrenador_id = e.id
-     LEFT JOIN especialidades es ON es.entrenador_id = e.id
+     LEFT JOIN entrenador_certificaciones tc ON tc.entrenador_id = e.id
+     LEFT JOIN certificaciones_catalogo ce   ON ce.id = tc.certificacion_id
+     LEFT JOIN entrenador_especialidades te  ON te.entrenador_id = e.id
+     LEFT JOIN especialidades_catalogo es    ON es.id = te.especialidad_id
      ${whereClause}
      GROUP BY e.id, u.nombre, u.apellido_paterno, u.apellido_materno,
               u.email, u.telefono, u.curp, u.fecha_nacimiento, u.estado_nacimiento,
               g.nombre, c.id, c.nombre
      ORDER BY u.apellido_paterno ASC`,
-    params
+    parametros
   )
   return rows
 }
 
-//Entrenadores asignados a un club
+// Entrenadores asignados a un club específico
 export const findByClub = async (clubId) => {
   const { rows } = await pool.query(
     `SELECT
@@ -62,8 +71,10 @@ export const findByClub = async (clubId) => {
       ) AS especialidades
      FROM entrenadores e
      JOIN usuarios u ON e.usuario_id = u.id
-     LEFT JOIN certificaciones ce ON ce.entrenador_id = e.id
-     LEFT JOIN especialidades es ON es.entrenador_id = e.id
+     LEFT JOIN entrenador_certificaciones tc ON tc.entrenador_id = e.id
+     LEFT JOIN certificaciones_catalogo ce   ON ce.id = tc.certificacion_id
+     LEFT JOIN entrenador_especialidades te  ON te.entrenador_id = e.id
+     LEFT JOIN especialidades_catalogo es    ON es.id = te.especialidad_id
      WHERE e.club_id = $1 AND e.estado = 'activo'
      GROUP BY e.id, u.nombre, u.apellido_paterno, u.apellido_materno,
               u.email, u.telefono
@@ -73,7 +84,7 @@ export const findByClub = async (clubId) => {
   return rows
 }
 
-//Un entrenador por su id interno (incluye club y datos de usuario)
+// Detalle de un entrenador por su ID
 export const findById = async (entrenadorId) => {
   const { rows } = await pool.query(
     `SELECT
@@ -95,8 +106,10 @@ export const findById = async (entrenadorId) => {
      JOIN usuarios u ON e.usuario_id = u.id
      LEFT JOIN generos g ON u.genero_id = g.id
      LEFT JOIN clubes c ON e.club_id = c.id
-     LEFT JOIN certificaciones ce ON ce.entrenador_id = e.id
-     LEFT JOIN especialidades es ON es.entrenador_id = e.id
+     LEFT JOIN entrenador_certificaciones tc ON tc.entrenador_id = e.id
+     LEFT JOIN certificaciones_catalogo ce   ON ce.id = tc.certificacion_id
+     LEFT JOIN entrenador_especialidades te  ON te.entrenador_id = e.id
+     LEFT JOIN especialidades_catalogo es    ON es.id = te.especialidad_id
      WHERE e.id = $1
      GROUP BY e.id, u.nombre, u.apellido_paterno, u.apellido_materno,
               u.email, u.telefono, u.fecha_nacimiento, u.curp,
@@ -106,18 +119,13 @@ export const findById = async (entrenadorId) => {
   return rows[0] || null
 }
 
-//Solicitudes de entrenadores para un club.
-//AJUSTE: filtro opcional por tipo ('solicitud' | 'invitacion') para poder
-//separar, del lado del club, las solicitudes recibidas de entrenadores de
-//las invitaciones que el propio club envió — ambas viven en la misma tabla.
-//REQUIERE: columna `tipo` en `solicitudes_entrenadores` (ver nota abajo en
-//crearInvitacionClub).
+// Solicitudes de entrenadores para un club (filtro opcional por tipo)
 export const findSolicitudesByClub = async (clubId, tipo) => {
-  const params = [clubId]
-  let where = 'WHERE se.club_id = $1'
+  const parametros = [clubId]
+  let whereClause = 'WHERE se.club_id = $1'
   if (tipo) {
-    params.push(tipo)
-    where += ` AND se.tipo = $${params.length}`
+    parametros.push(tipo)
+    whereClause += ` AND se.tipo = $${parametros.length}`
   }
 
   const { rows } = await pool.query(
@@ -129,25 +137,14 @@ export const findSolicitudesByClub = async (clubId, tipo) => {
      FROM solicitudes_entrenadores se
      JOIN entrenadores e ON se.entrenador_id = e.id
      JOIN usuarios u ON e.usuario_id = u.id
-     ${where}
+     ${whereClause}
      ORDER BY se.fecha_solicitud DESC`,
-    params
+    parametros
   )
   return rows
 }
 
-//NUEVO: invitación iniciada por el club hacia un entrenador independiente.
-//Requiere que el entrenador la acepte (misma mecánica que updateSolicitud).
-//
-//IMPORTANTE — MIGRACIÓN PENDIENTE: la tabla `solicitudes_entrenadores`
-//aparentemente no tiene columna `tipo` todavía (solo se usaba para
-//solicitudes iniciadas por el entrenador). Antes de usar esto, correr:
-//
-//   ALTER TABLE solicitudes_entrenadores
-//     ADD COLUMN tipo VARCHAR(20) NOT NULL DEFAULT 'solicitud';
-//
-//El DEFAULT 'solicitud' hace que las filas existentes (todas creadas por
-//entrenadores) sigan clasificando correctamente sin necesitar backfill.
+// Crea una invitación desde el club hacia un entrenador independiente
 export const crearInvitacionClub = async ({ entrenadorId, clubId }) => {
   const { rows: entrenadorRows } = await pool.query(
     `SELECT club_id FROM entrenadores WHERE id = $1`,
@@ -173,18 +170,30 @@ export const crearInvitacionClub = async ({ entrenadorId, clubId }) => {
   return { solicitud: rows[0] }
 }
 
-//Actualizar estado de solicitud
-//Si se acepta se le asigna el entrenador al club
-export const updateSolicitud = async (solicitudId, estado) => {
-  //Obtener la solicitud primero
+// Actualiza el estado de una solicitud o invitación (aceptada/rechazada)
+export const updateSolicitud = async (solicitudId, estado, actor = {}) => {
   const { rows: solicitudes } = await pool.query(
-    `SELECT * FROM solicitudes_entrenadores WHERE id = $1`,
+    `SELECT se.*, u.nombre AS entrenador_nombre, u.email AS entrenador_email,
+            c.nombre AS club_nombre, c.email AS club_email
+     FROM solicitudes_entrenadores se
+     JOIN entrenadores e ON se.entrenador_id = e.id
+     JOIN usuarios u     ON e.usuario_id = u.id
+     JOIN clubes c       ON se.club_id = c.id
+     WHERE se.id = $1`,
     [solicitudId]
   )
   const solicitud = solicitudes[0]
   if (!solicitud) return null
 
-  //Actualizar estado
+  // Validar que el actor tenga permiso sobre esta solicitud
+  if (actor.clubId && solicitud.club_id !== actor.clubId) {
+    return { error: 'Esta solicitud no pertenece a tu club.' }
+  }
+  if (actor.entrenadorId && solicitud.entrenador_id !== actor.entrenadorId) {
+    return { error: 'Esta solicitud no te pertenece.' }
+  }
+
+  // Actualizar estado
   const { rows } = await pool.query(
     `UPDATE solicitudes_entrenadores
      SET estado = $1
@@ -193,7 +202,7 @@ export const updateSolicitud = async (solicitudId, estado) => {
     [estado, solicitudId]
   )
 
-  //Si se acepta, asignar el entrenador al club
+  // Si es aceptada, asignar el entrenador al club
   if (estado === 'aceptada') {
     await pool.query(
       `UPDATE entrenadores
@@ -203,14 +212,43 @@ export const updateSolicitud = async (solicitudId, estado) => {
     )
   }
 
+  // Notificaciones y correos
+  try {
+    if (actor.clubId) {
+      // El club responde a una solicitud del entrenador
+      const mensaje = estado === 'aceptada'
+        ? `Tu solicitud para unirte a "${solicitud.club_nombre}" fue aceptada.`
+        : `Tu solicitud para unirte a "${solicitud.club_nombre}" fue rechazada.`
+      const { rows: usuarioRows } = await pool.query(
+        `SELECT usuario_id FROM entrenadores WHERE id = $1`, [solicitud.entrenador_id]
+      )
+      if (usuarioRows[0]) await NotificacionModel.crear(usuarioRows[0].usuario_id, mensaje)
+
+      if (estado === 'aceptada') {
+        await sendSolicitudAceptadaEmail({ to: solicitud.entrenador_email, nombre: solicitud.entrenador_nombre, clubNombre: solicitud.club_nombre })
+      } else {
+        await sendSolicitudRechazadaEmail({ to: solicitud.entrenador_email, nombre: solicitud.entrenador_nombre, clubNombre: solicitud.club_nombre })
+      }
+    } else if (actor.entrenadorId) {
+      // El entrenador responde a una invitación del club
+      const mensaje = estado === 'aceptada'
+        ? `El entrenador "${solicitud.entrenador_nombre}" aceptó tu invitación.`
+        : `El entrenador "${solicitud.entrenador_nombre}" rechazó tu invitación.`
+      await NotificacionModel.crearParaClub(solicitud.club_id, mensaje)
+
+      if (estado === 'aceptada') {
+        await sendInvitacionEntrenadorAceptadaClubEmail({ to: solicitud.club_email, clubNombre: solicitud.club_nombre, entrenadorNombre: solicitud.entrenador_nombre })
+      }
+    }
+  } catch (err) {
+    console.error('No se pudo notificar la respuesta de la solicitud:', err)
+  }
+
   return rows[0]
 }
 
-//Actualizar datos generales del entrenador (usado por admin: nombre,
-//apellidos, email, telefono, curp, fecha de nacimiento, estado de
-//nacimiento, genero, anos de experiencia). El cambio de club vive en
-//updateClub, no se duplica aqui.
-export const updateAdmin = async (entrenadorId, fields) => {
+// Actualización de entrenador por parte del administrador
+export const updateAdmin = async (entrenadorId, campos) => {
   const { rows: entrenadorRows } = await pool.query(
     `SELECT usuario_id FROM entrenadores WHERE id = $1`,
     [entrenadorId]
@@ -218,7 +256,7 @@ export const updateAdmin = async (entrenadorId, fields) => {
   const usuarioId = entrenadorRows[0]?.usuario_id
   if (!usuarioId) return null
 
-  const { anos_experiencia, ...datosUsuario } = fields
+  const { anos_experiencia, ...datosUsuario } = campos
 
   await actualizarDatosUsuario(usuarioId, datosUsuario)
 
@@ -232,7 +270,115 @@ export const updateAdmin = async (entrenadorId, fields) => {
   return findById(entrenadorId)
 }
 
-//Asignar / quitar club a un entrenador (usado por admin)
-export const updateClub = async (entrenadorId, clubId) => {
-  return actualizarClubEntidad('entrenadores', entrenadorId, clubId)
+// Asigna o quita un club a un entrenador (admin o club propietario)
+export const updateClub = async (entrenadorId, clubId, actorClubId = null) => {
+  if (actorClubId) {
+    if (clubId) {
+      return { error: 'Un club no puede asignarse un entrenador directamente — usa el flujo de solicitud/invitación.' }
+    }
+    const { rows: actual } = await pool.query(`SELECT club_id FROM entrenadores WHERE id = $1`, [entrenadorId])
+    if (!actual[0]) return null
+    if (actual[0].club_id !== actorClubId) {
+      return { error: 'Este entrenador no pertenece a tu club.' }
+    }
+  }
+
+  // Guardar información del club anterior si se va a desasignar
+  let clubQueSaleInfo = null
+  if (!clubId) {
+    const { rows } = await pool.query(
+      `SELECT c.id AS club_id, c.email AS club_email, c.nombre AS club_nombre, u.nombre AS entrenador_nombre, u.email AS entrenador_email
+       FROM entrenadores e
+       JOIN usuarios u     ON e.usuario_id = u.id
+       LEFT JOIN clubes c  ON e.club_id = c.id
+       WHERE e.id = $1`,
+      [entrenadorId]
+    )
+    clubQueSaleInfo = rows[0]?.club_id ? rows[0] : null
+  }
+
+  const resultado = await actualizarClubEntidad('entrenadores', entrenadorId, clubId)
+
+  // Si el entrenador era entrenador principal del club, limpiar esa referencia
+  if (clubQueSaleInfo) {
+    await pool.query(
+      `UPDATE clubes SET entrenador_id = NULL WHERE id = $1 AND entrenador_id = $2`,
+      [clubQueSaleInfo.club_id, entrenadorId]
+    )
+  }
+
+  // Notificar salida del club
+  if (clubQueSaleInfo) {
+    try {
+      await NotificacionModel.crearParaClub(clubQueSaleInfo.club_id, `El entrenador "${clubQueSaleInfo.entrenador_nombre}" salió de tu club.`)
+      const { rows: entrenadorRows } = await pool.query(`SELECT usuario_id FROM entrenadores WHERE id = $1`, [entrenadorId])
+      const usuarioId = entrenadorRows[0]?.usuario_id
+      if (usuarioId) {
+        await NotificacionModel.crear(usuarioId, `Ya no perteneces al club "${clubQueSaleInfo.club_nombre}".`)
+      }
+      await sendEntrenadorSalioClubEmail({
+        to: clubQueSaleInfo.club_email,
+        clubNombre: clubQueSaleInfo.club_nombre,
+        entrenadorNombre: clubQueSaleInfo.entrenador_nombre,
+      })
+      if (clubQueSaleInfo.entrenador_email) {
+        await sendSalidaClubEmail({
+          to: clubQueSaleInfo.entrenador_email,
+          nombre: clubQueSaleInfo.entrenador_nombre,
+          clubNombre: clubQueSaleInfo.club_nombre,
+        })
+      }
+    } catch (err) {
+      console.error('No se pudo notificar la salida del club:', err)
+    }
+  }
+
+  return resultado
+}
+
+// Elimina un entrenador (solo admin) - bloqueado si tiene resultados asociados
+export const remove = async (entrenadorId) => {
+  // Verificar si tiene resultados registrados
+  const { rows: resultados } = await pool.query(
+    `SELECT id FROM resultados WHERE entrenador_id = $1 LIMIT 1`,
+    [entrenadorId]
+  )
+  if (resultados.length > 0) {
+    return { error: 'No se puede eliminar: el entrenador tiene resultados registrados' }
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    const { rows: entrenadorRows } = await client.query(
+      `SELECT usuario_id FROM entrenadores WHERE id = $1`,
+      [entrenadorId]
+    )
+    if (!entrenadorRows[0]) {
+      await client.query('ROLLBACK')
+      return { error: 'Entrenador no encontrado' }
+    }
+    const usuarioId = entrenadorRows[0].usuario_id
+
+    // Quitar referencia si es entrenador principal de algún club
+    await client.query(`UPDATE clubes SET entrenador_id = NULL WHERE entrenador_id = $1`, [entrenadorId])
+
+    // Eliminar relaciones propias (el catálogo no se toca)
+    await client.query(`DELETE FROM entrenador_certificaciones WHERE entrenador_id = $1`, [entrenadorId])
+    await client.query(`DELETE FROM entrenador_especialidades WHERE entrenador_id = $1`, [entrenadorId])
+    await client.query(`DELETE FROM atleta_entrenador WHERE entrenador_id = $1`, [entrenadorId])
+    await client.query(`DELETE FROM solicitudes_entrenadores WHERE entrenador_id = $1`, [entrenadorId])
+
+    await client.query(`DELETE FROM entrenadores WHERE id = $1`, [entrenadorId])
+    await client.query(`DELETE FROM usuarios WHERE id = $1`, [usuarioId])
+
+    await client.query('COMMIT')
+    return { ok: true }
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
 }

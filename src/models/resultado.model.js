@@ -2,10 +2,8 @@ import { pool } from '../config/db.js'
 import * as NotificacionModel from './notificacion.model.js'
 import { sendResultadosPublicadosEmail, sendResultadosPublicadosClubEmail } from '../services/email.service.js'
 
-// Disciplinas de campo (salto/lanzamiento): gana la marca MÁS ALTA. Todo lo
-// demás del catálogo (carreras, vallas, marcha, relevos) es por tiempo:
-// gana la MÁS BAJA. Si agregas una disciplina de distancia nueva al
-// catálogo, agrégala aquí también para que el lugar salga bien calculado.
+// Disciplinas de campo (salto/lanzamiento): gana la marca MÁS ALTA.
+// Las demás (carreras, vallas, marcha, relevos) son por tiempo: gana la MÁS BAJA.
 const DISCIPLINAS_DISTANCIA = new Set([
   'Salto de longitud',
   'Salto de altura',
@@ -15,8 +13,7 @@ const DISCIPLINAS_DISTANCIA = new Set([
 ])
 const esDisciplinaDeDistancia = (disciplina) => DISCIPLINAS_DISTANCIA.has((disciplina || '').trim())
 
-// "01:02:17,45" / "62:17,45" / "17,45" → total de centésimas, para poder
-// comparar tiempos como números. null si no se puede interpretar.
+// Convierte tiempo en formato "01:02:17,45" a centésimas para comparar numéricamente
 const tiempoACentesimas = (str) => {
   if (!str) return null
   const limpio = String(str).trim().replace(',', '.')
@@ -30,17 +27,14 @@ const tiempoACentesimas = (str) => {
   return Math.round(segundos * 100)
 }
 
-// "6,45 m" / "6.45" → número, para comparar distancias/alturas.
+// Convierte marca de distancia como "6,45 m" a número
 const marcaANumero = (str) => {
   if (!str) return null
   const num = parseFloat(String(str).trim().replace(',', '.').replace(/[^0-9.]/g, ''))
   return Number.isNaN(num) ? null : num
 }
 
-// Recibe TODOS los resultados de un mismo campo (evento+disciplina+
-// categoría+género — es decir, de una convocatoria) y regresa la misma
-// lista con `posicion` agregado a cada uno (1, 2, 3...). Empates comparten
-// lugar. Los que no tengan una marca válida quedan sin posición (null).
+// Calcula posiciones (con empates) para resultados de una misma convocatoria
 const calcularPosiciones = (resultados, disciplina) => {
   const esDistancia = esDisciplinaDeDistancia(disciplina)
 
@@ -51,9 +45,9 @@ const calcularPosiciones = (resultados, disciplina) => {
     return esDistancia ? marcaANumero(prueba?.marca) : tiempoACentesimas(prueba?.marca)
   }
 
-  const conValor = resultados.map((r) => ({ ...r, _valorOrden: valorDe(r) }))
+  const resultadosConValor = resultados.map((r) => ({ ...r, _valorOrden: valorDe(r) }))
 
-  conValor.sort((a, b) => {
+  resultadosConValor.sort((a, b) => {
     if (a._valorOrden === null && b._valorOrden === null) return 0
     if (a._valorOrden === null) return 1
     if (b._valorOrden === null) return -1
@@ -61,10 +55,10 @@ const calcularPosiciones = (resultados, disciplina) => {
   })
 
   let siguientePosicion = 1
-  conValor.forEach((r, i) => {
+  resultadosConValor.forEach((r, i) => {
     if (r._valorOrden === null) { r.posicion = null; return }
-    if (i > 0 && conValor[i - 1]._valorOrden === r._valorOrden) {
-      r.posicion = conValor[i - 1].posicion
+    if (i > 0 && resultadosConValor[i - 1]._valorOrden === r._valorOrden) {
+      r.posicion = resultadosConValor[i - 1].posicion
     } else {
       r.posicion = siguientePosicion
     }
@@ -72,13 +66,10 @@ const calcularPosiciones = (resultados, disciplina) => {
     delete r._valorOrden
   })
 
-  return conValor
+  return resultadosConValor
 }
 
-//Query base reutilizable para traer resultados con JOINs. Trae el Bib
-//cruzando por evento+disciplina+categoría+género hacia convocatorias, y de
-//ahí hacia la inscripción de ese mismo atleta (el Bib vive en
-//inscripciones, no en resultados).
+// Query base con JOINs para obtener resultados completos (incluye pruebas y bib)
 const RESULTADO_BASE = `
   SELECT
     r.id, r.ano_competitivo, r.fecha_registro,
@@ -131,27 +122,23 @@ const RESULTADO_GROUP = `
     en.id, r.categoria_id, cat.nombre, r.genero_id, g.nombre, r.disciplina_id, d.nombre, i.bib
 `
 
-// Dado un conjunto de resultados (de un atleta o de un club), calcula el
-// lugar real de cada uno comparándolo contra TODO el campo de esa
-// convocatoria (evento+disciplina+categoría+género) — nunca solo contra
-// los resultados propios, porque el lugar de un atleta no depende
-// únicamente de sus compañeros de club.
+// Dado un conjunto de resultados propios, calcula la posición real de cada uno comparando contra todo el campo de su convocatoria
 const agregarPosicionesReales = async (resultadosPropios) => {
-  const combosVistos = new Map() // clave del campo -> ese campo completo, ya rankeado
+  const cachePorCampo = new Map() 
   const conPosicion = []
 
   for (const propio of resultadosPropios) {
     const clave = `${propio.evento_id}-${propio.disciplina_id}-${propio.categoria_id}-${propio.genero_id}`
-    if (!combosVistos.has(clave)) {
+    if (!cachePorCampo.has(clave)) {
       const { rows: campoCompleto } = await pool.query(
         `${RESULTADO_BASE}
          WHERE r.evento_id = $1 AND r.disciplina_id = $2 AND r.categoria_id = $3 AND r.genero_id = $4
          ${RESULTADO_GROUP}`,
         [propio.evento_id, propio.disciplina_id, propio.categoria_id, propio.genero_id]
       )
-      combosVistos.set(clave, calcularPosiciones(campoCompleto, campoCompleto[0]?.disciplina))
+      cachePorCampo.set(clave, calcularPosiciones(campoCompleto, campoCompleto[0]?.disciplina))
     }
-    const campoRankeado = combosVistos.get(clave)
+    const campoRankeado = cachePorCampo.get(clave)
     const conRanking = campoRankeado.find((r) => r.id === propio.id)
     conPosicion.push(conRanking || { ...propio, posicion: null })
   }
@@ -159,7 +146,7 @@ const agregarPosicionesReales = async (resultadosPropios) => {
   return conPosicion
 }
 
-//Obtener todos con filtros opcionales
+// Lista resultados con filtros opcionales
 export const findAll = async ({ eventoId, atletaId, categoriaId, clubId, anoCompetitivo, limit = 100 } = {}) => {
   const params = []
   const conditions = []
@@ -181,13 +168,10 @@ export const findAll = async ({ eventoId, atletaId, categoriaId, clubId, anoComp
      LIMIT $${params.length}`,
     params
   )
-  // Igual que findByAtleta/findByClub: el lugar de cada resultado se
-  // calcula contra TODO el campo de su convocatoria (evento+disciplina+
-  // categoría+género), no nada más entre los que trajo este LIMIT.
   return agregarPosicionesReales(rows)
 }
 
-//Un resultado por ID
+// Obtiene un resultado por ID
 export const findById = async (id) => {
   const { rows } = await pool.query(
     `${RESULTADO_BASE}
@@ -198,7 +182,7 @@ export const findById = async (id) => {
   return rows[0] || null
 }
 
-//Resultados por evento
+// Resultados por evento
 export const findByEvento = async (eventoId) => {
   const { rows } = await pool.query(
     `${RESULTADO_BASE}
@@ -210,8 +194,7 @@ export const findByEvento = async (eventoId) => {
   return rows
 }
 
-//Resultados por atleta — con el lugar real ya calculado contra todo el
-//campo de cada convocatoria en la que participó, y su Bib.
+// Resultados por atleta (con posición real)
 export const findByAtleta = async (atletaId) => {
   const { rows } = await pool.query(
     `${RESULTADO_BASE}
@@ -223,8 +206,7 @@ export const findByAtleta = async (atletaId) => {
   return agregarPosicionesReales(rows)
 }
 
-//Resultados por club — con el lugar real de cada atleta ya calculado
-//contra todo el campo de cada convocatoria, y su Bib.
+// Resultados por club (con posición real)
 export const findByClub = async (clubId) => {
   const { rows } = await pool.query(
     `${RESULTADO_BASE}
@@ -236,7 +218,7 @@ export const findByClub = async (clubId) => {
   return agregarPosicionesReales(rows)
 }
 
-//Resultados por entrenador
+// Resultados por entrenador (con posición real)
 export const findByEntrenador = async (entrenadorId) => {
   const { rows } = await pool.query(
     `${RESULTADO_BASE}
@@ -245,11 +227,10 @@ export const findByEntrenador = async (entrenadorId) => {
      ORDER BY r.fecha_registro DESC`,
     [entrenadorId]
   )
-  // Mismo fix que en findAll: esta consulta tampoco calculaba `posicion`.
   return agregarPosicionesReales(rows)
 }
 
-//Crear resultado y pruebas en transacción
+// Crea un resultado y sus pruebas asociadas (transacción)
 export const create = async ({
   evento_id, atleta_id, entrenador_id,
   categoria_id, genero_id, disciplina_id,
@@ -287,7 +268,7 @@ export const create = async ({
   }
 }
 
-//Actualizar resultado y reemplazar pruebas
+// Actualiza un resultado y reemplaza sus pruebas
 export const update = async (id, {
   evento_id, atleta_id, entrenador_id,
   categoria_id, genero_id, disciplina_id,
@@ -335,7 +316,7 @@ export const update = async (id, {
   }
 }
 
-//Eliminar resultado (cascada elimina pruebas_resultado por FK)
+// Elimina un resultado (las pruebas se eliminan por cascada FK)
 export const remove = async (id) => {
   const { rows } = await pool.query(
     `DELETE FROM resultados WHERE id = $1 RETURNING id`,
@@ -344,7 +325,7 @@ export const remove = async (id) => {
   return rows[0] || null
 }
 
-//Estadísticas generales
+// Estadísticas generales
 export const getEstadisticasGenerales = async () => {
   const { rows } = await pool.query(
     `SELECT
@@ -359,7 +340,7 @@ export const getEstadisticasGenerales = async () => {
   return rows[0]
 }
 
-//Estadísticas por club
+// Estadísticas por club
 export const getEstadisticasByClub = async (clubId) => {
   const { rows } = await pool.query(
     `SELECT
@@ -375,6 +356,7 @@ export const getEstadisticasByClub = async (clubId) => {
   return rows[0]
 }
 
+// Obtiene los datos de una convocatoria
 const resolverConvocatoria = async (client, convocatoriaId) => {
   const { rows } = await client.query(
     `SELECT evento_id, disciplina_id, categoria_id, genero_id FROM convocatorias WHERE id = $1`,
@@ -383,8 +365,64 @@ const resolverConvocatoria = async (client, convocatoriaId) => {
   return rows[0] || null
 }
 
-//Resultados de una convocatoria específica, ya con el lugar de cada quien
-//calculado (1°, 2°, 3°... con empates compartiendo lugar).
+// Obtiene las mejores marcas por disciplina, categoría y género
+export const getMejoresMarcas = async ({ categoria, club, anoCompetitivo, genero } = {}) => {
+  const params = []
+  const conditions = []
+  if (categoria) { params.push(categoria); conditions.push(`cat.nombre = $${params.length}`) }
+  if (club) { params.push(club); conditions.push(`c_atleta.nombre = $${params.length}`) }
+  if (anoCompetitivo) { params.push(anoCompetitivo); conditions.push(`r.ano_competitivo = $${params.length}`) }
+  if (genero) { params.push(genero); conditions.push(`g.nombre ILIKE $${params.length}`) }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+
+  const { rows } = await pool.query(
+    `${RESULTADO_BASE}
+     ${where}
+     ${RESULTADO_GROUP}`,
+    params
+  )
+
+  const agrupadoPorCampo = new Map()
+  for (const r of rows) {
+    if (!r.disciplina) continue
+    const esDistancia = esDisciplinaDeDistancia(r.disciplina)
+    const prueba = esDistancia
+      ? r.pruebas?.find((p) => p.nombre === 'Marca')
+      : r.pruebas?.find((p) => p.nombre === 'ChipTime') || r.pruebas?.find((p) => p.nombre === 'GunTime')
+    const valor = prueba ? (esDistancia ? marcaANumero(prueba.marca) : tiempoACentesimas(prueba.marca)) : null
+    if (valor === null) continue
+    const texto = `${prueba.marca}${prueba.unidad ? ' ' + prueba.unidad : ''}`.trim()
+
+    const clave = `${r.disciplina_id}|${r.categoria_id}|${r.genero_id}`
+    if (!agrupadoPorCampo.has(clave)) {
+      agrupadoPorCampo.set(clave, {
+        disciplina: r.disciplina, categoria: r.categoria || '—', genero: r.genero || '—',
+        esDistancia, atletas: [],
+      })
+    }
+    agrupadoPorCampo.get(clave).atletas.push({
+      atleta_id: r.atleta_id,
+      nombre: [r.nombre, r.apellido_paterno, r.apellido_materno].filter(Boolean).join(' '),
+      club_nombre: r.club_nombre || 'Independiente',
+      evento_titulo: r.evento_titulo,
+      valor, texto,
+    })
+  }
+
+  return [...agrupadoPorCampo.values()]
+    .map((combo) => {
+      const atletasOrdenados = combo.atletas.sort((a, b) => combo.esDistancia ? b.valor - a.valor : a.valor - b.valor)
+      return {
+        disciplina: combo.disciplina, categoria: combo.categoria, genero: combo.genero,
+        mejorAtleta: atletasOrdenados[0],
+        candidatos: atletasOrdenados.slice(0, 5),
+        totalCandidatos: atletasOrdenados.length,
+      }
+    })
+    .sort((a, b) => a.disciplina.localeCompare(b.disciplina) || a.categoria.localeCompare(b.categoria))
+}
+
+// Resultados de una convocatoria específica (con posiciones calculadas)
 export const findByConvocatoria = async (convocatoriaId) => {
   const conv = await resolverConvocatoria(pool, convocatoriaId)
   if (!conv) return null
@@ -398,10 +436,7 @@ export const findByConvocatoria = async (convocatoriaId) => {
   return calcularPosiciones(rows, rows[0]?.disciplina)
 }
 
-// Borra los resultados de una convocatoria (y sus pruebas hijas primero,
-// porque `pruebas_resultado` no tiene ON DELETE CASCADE hacia `resultados`
-// — si se borra el resultado antes que sus pruebas, Postgres rechaza el
-// DELETE con una violación de foreign key).
+// Elimina todos los resultados de una convocatoria (incluye sus pruebas)
 export const removeByConvocatoria = async (convocatoriaId) => {
   const conv = await resolverConvocatoria(pool, convocatoriaId)
   if (!conv) return null
@@ -432,8 +467,7 @@ export const removeByConvocatoria = async (convocatoriaId) => {
   }
 }
 
-// Borra los resultados previos de la convocatoria antes de insertar, así
-// que volver a subir el Excel actualiza en vez de duplicar.
+// Carga masiva de resultados para una convocatoria (reemplaza los existentes)
 export const createMasivoPorConvocatoria = async (convocatoriaId, atletasResultados, anoCompetitivo) => {
   const client = await pool.connect()
   try {
@@ -442,6 +476,7 @@ export const createMasivoPorConvocatoria = async (convocatoriaId, atletasResulta
     const conv = await resolverConvocatoria(client, convocatoriaId)
     if (!conv) { await client.query('ROLLBACK'); return null }
 
+    // Eliminar resultados previos de esta convocatoria
     const { rows: aBorrar } = await client.query(
       `SELECT id FROM resultados
        WHERE evento_id = $1 AND disciplina_id = $2 AND categoria_id = $3 AND genero_id = $4`,
@@ -453,6 +488,7 @@ export const createMasivoPorConvocatoria = async (convocatoriaId, atletasResulta
       await client.query(`DELETE FROM resultados WHERE id = ANY($1::int[])`, [idsPrevios])
     }
 
+    // Insertar nuevos resultados
     const idsCreados = []
     for (const r of atletasResultados) {
       const { rows } = await client.query(
@@ -479,12 +515,9 @@ export const createMasivoPorConvocatoria = async (convocatoriaId, atletasResulta
 
     await client.query('COMMIT')
 
-    // Avisar a los atletas de esa convocatoria (notificación en la app +
-    // correo) de que ya hay resultados. Se hace DESPUÉS del commit, y con
-    // su propio try/catch — si el correo falla, los resultados ya quedaron
-    // guardados de todas formas.
+    // Notificar a atletas y clubes sobre la publicación de resultados
     try {
-      const { rows: datos } = await pool.query(
+      const { rows: infoEvento } = await pool.query(
         `SELECT e.titulo AS evento_titulo, d.nombre AS disciplina, cat.nombre AS categoria
          FROM eventos e
          JOIN disciplinas d  ON d.id = $1
@@ -492,7 +525,7 @@ export const createMasivoPorConvocatoria = async (convocatoriaId, atletasResulta
          WHERE e.id = $3`,
         [conv.disciplina_id, conv.categoria_id, conv.evento_id]
       )
-      const info = datos[0]
+      const info = infoEvento[0]
       if (info && idsCreados.length > 0) {
         const { rows: atletasUsuarios } = await pool.query(
           `SELECT u.id AS usuario_id, u.nombre, u.email,

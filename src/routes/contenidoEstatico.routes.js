@@ -6,10 +6,10 @@ import { contenidoSchema } from '../schemas/contenidoEstatico.schema.js'
 
 const router = Router()
 
-// Pública — cualquiera puede leer misión, visión, etc.
+// Obtiene contenido estático por tipo (mision, vision, politica, terminos)
 router.get('/:tipo', ContenidoController.getByTipo)
 
-// Solo admin puede actualizar
+// Actualiza o crea contenido estático (solo administradores)
 router.put('/:tipo', requireAuth, validate(contenidoSchema), ContenidoController.upsert)
 
 export default router

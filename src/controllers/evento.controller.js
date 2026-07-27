@@ -3,26 +3,26 @@ import * as InscripcionModel from '../models/inscripcion.model.js'
 import cloudinary from 'cloudinary'
 import { borrarDeCloudinary } from '../services/cloudinaryCleanup.service.js'
 
-// Convierte el título del evento en un nombre de carpeta seguro (sin
-// acentos, espacios ni símbolos raros) y le agrega una marca de tiempo
-// para que dos eventos con el mismo título no compartan carpeta.
+// Genera un nombre de carpeta único basado en el título del evento
 const nombreCarpetaEvento = (titulo) => {
   const slug = (titulo || 'evento')
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quitar acentos
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '')
   return `ivd_eventos/${Date.now()}_${slug}`
 }
 
+// Lista eventos con opción de incluir los finalizados
 export const getAll = async (req, res, next) => {
   try {
-    const todos = req.query.todos === 'true'
-    const eventos = await EventoModel.findAll(req.query.limit, todos)
-    res.json({ eventos })
+    const incluirTodos = req.query.todos === 'true'
+    const listaEventos = await EventoModel.findAll(req.query.limit, incluirTodos)
+    res.json({ eventos: listaEventos })
   } catch (err) { next(err) }
 }
 
+// Obtiene un evento por ID
 export const getById = async (req, res, next) => {
   try {
     const evento = await EventoModel.findById(req.params.id)
@@ -31,10 +31,11 @@ export const getById = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Crea un evento, subiendo imagen y documentos a Cloudinary si existen
 export const create = async (req, res, next) => {
   try {
     const body = { ...req.body }
-
+    // Asigna fecha de cierre automática (un día antes del evento) si no se envía
     if (!body.fecha_cierre) {
       const fechaEvento = new Date(body.fecha)
       body.fecha_cierre = new Date(fechaEvento.getTime() - 24 * 60 * 60 * 1000).toISOString()
@@ -42,88 +43,92 @@ export const create = async (req, res, next) => {
 
     const carpetaEvento = nombreCarpetaEvento(body.titulo)
 
+    // Sube imagen principal
     if (req.files && req.files.imagen) {
-      const result = await cloudinary.v2.uploader.upload(req.files.imagen.tempFilePath, {
+      const resultadoImagen = await cloudinary.v2.uploader.upload(req.files.imagen.tempFilePath, {
         folder: carpetaEvento,
         use_filename: true,
       })
-      body.imagen_url = result.secure_url
-      body.imagen_public_id = result.public_id
+      body.imagen_url = resultadoImagen.secure_url
+      body.imagen_public_id = resultadoImagen.public_id
     }
 
+    // Sube documento de convocatoria
     if (req.files && req.files.documentoConvocatoria) {
-      const result = await cloudinary.v2.uploader.upload(req.files.documentoConvocatoria.tempFilePath, {
+      const resultadoDoc = await cloudinary.v2.uploader.upload(req.files.documentoConvocatoria.tempFilePath, {
         folder: carpetaEvento,
         resource_type: 'auto',
         use_filename: true,
       })
-      body.documento_convocatoria_url = result.secure_url
-      body.documento_convocatoria_public_id = result.public_id
+      body.documento_convocatoria_url = resultadoDoc.secure_url
+      body.documento_convocatoria_public_id = resultadoDoc.public_id
     }
 
+    // Sube documento de deslinde
     if (req.files && req.files.documentoDeslinde) {
-      const result = await cloudinary.v2.uploader.upload(req.files.documentoDeslinde.tempFilePath, {
+      const resultadoDeslinde = await cloudinary.v2.uploader.upload(req.files.documentoDeslinde.tempFilePath, {
         folder: carpetaEvento,
         resource_type: 'auto',
         use_filename: true,
       })
-      body.documento_deslinde_url = result.secure_url
-      body.documento_deslinde_public_id = result.public_id
+      body.documento_deslinde_url = resultadoDeslinde.secure_url
+      body.documento_deslinde_public_id = resultadoDeslinde.public_id
     }
 
-    const evento = await EventoModel.create(body)
-    res.status(201).json({ evento })
+    const eventoCreado = await EventoModel.create(body)
+    res.status(201).json({ evento: eventoCreado })
   } catch (err) { next(err) }
 }
 
-// Editar datos del evento, y opcionalmente reemplazar imagen/documentos.
-// Si se sube un archivo nuevo, borra el anterior de Cloudinary.
+// Actualiza evento, reemplazando archivos si se envían nuevos
 export const update = async (req, res, next) => {
   try {
-    const evento = await EventoModel.findById(req.params.id)
-    if (!evento) return res.status(404).json({ error: 'Evento no encontrado' })
+    const eventoExistente = await EventoModel.findById(req.params.id)
+    if (!eventoExistente) return res.status(404).json({ error: 'Evento no encontrado' })
 
     const body = { ...req.body }
-    const carpetaEvento = nombreCarpetaEvento(body.titulo || evento.titulo)
-
+    const carpetaEvento = nombreCarpetaEvento(body.titulo || eventoExistente.titulo)
+    // Reemplaza imagen
     if (req.files && req.files.imagen) {
-      const result = await cloudinary.v2.uploader.upload(req.files.imagen.tempFilePath, {
+      const resultadoImagen = await cloudinary.v2.uploader.upload(req.files.imagen.tempFilePath, {
         folder: carpetaEvento,
         use_filename: true,
       })
-      body.imagen_url = result.secure_url
-      body.imagen_public_id = result.public_id
-      await borrarDeCloudinary(evento.imagen_public_id)
+      body.imagen_url = resultadoImagen.secure_url
+      body.imagen_public_id = resultadoImagen.public_id
+      await borrarDeCloudinary(eventoExistente.imagen_public_id)
     }
 
+    // Reemplaza documento de convocatoria
     if (req.files && req.files.documentoConvocatoria) {
-      const result = await cloudinary.v2.uploader.upload(req.files.documentoConvocatoria.tempFilePath, {
+      const resultadoDoc = await cloudinary.v2.uploader.upload(req.files.documentoConvocatoria.tempFilePath, {
         folder: carpetaEvento,
         resource_type: 'auto',
         use_filename: true,
       })
-      body.documento_convocatoria_url = result.secure_url
-      body.documento_convocatoria_public_id = result.public_id
-      await borrarDeCloudinary(evento.documento_convocatoria_public_id)
+      body.documento_convocatoria_url = resultadoDoc.secure_url
+      body.documento_convocatoria_public_id = resultadoDoc.public_id
+      await borrarDeCloudinary(eventoExistente.documento_convocatoria_public_id)
     }
 
+    // Reemplaza documento de deslinde
     if (req.files && req.files.documentoDeslinde) {
-      const result = await cloudinary.v2.uploader.upload(req.files.documentoDeslinde.tempFilePath, {
+      const resultadoDeslinde = await cloudinary.v2.uploader.upload(req.files.documentoDeslinde.tempFilePath, {
         folder: carpetaEvento,
         resource_type: 'auto',
         use_filename: true,
       })
-      body.documento_deslinde_url = result.secure_url
-      body.documento_deslinde_public_id = result.public_id
-      await borrarDeCloudinary(evento.documento_deslinde_public_id)
+      body.documento_deslinde_url = resultadoDeslinde.secure_url
+      body.documento_deslinde_public_id = resultadoDeslinde.public_id
+      await borrarDeCloudinary(eventoExistente.documento_deslinde_public_id)
     }
 
-    const actualizado = await EventoModel.update(req.params.id, body)
-    res.json({ evento: actualizado })
+    const eventoActualizado = await EventoModel.update(req.params.id, body)
+    res.json({ evento: eventoActualizado })
   } catch (err) { next(err) }
 }
 
-// Marcar el evento como activo/cerrado (no lo borra)
+// Activa o desactiva un evento (cambia estado)
 export const toggleEstado = async (req, res, next) => {
   try {
     const evento = await EventoModel.toggleEstado(req.params.id, req.body.estado)
@@ -132,8 +137,7 @@ export const toggleEstado = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// Finalizar/reabrir el evento (distinto de toggleEstado, que es para
-// cancelar/activar). Al finalizar, cierra en cascada sus convocatorias.
+// Finaliza o reabre un evento (afecta a sus convocatorias)
 export const toggleFinalizadoEvento = async (req, res, next) => {
   try {
     const evento = await EventoModel.toggleFinalizadoEvento(req.params.id, req.body.finalizado)
@@ -142,7 +146,7 @@ export const toggleFinalizadoEvento = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// Eliminar una convocatoria (saca y notifica a los inscritos)
+// Elimina una convocatoria (notifica a inscritos)
 export const deleteConvocatoria = async (req, res, next) => {
   try {
     const resultado = await EventoModel.removeConvocatoria(req.params.convocatoriaId)
@@ -151,8 +155,7 @@ export const deleteConvocatoria = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// Eliminar el evento completo (saca y notifica a todos los inscritos,
-// borra sus archivos de Cloudinary)
+// Elimina evento completo y sus archivos de Cloudinary
 export const deleteEvento = async (req, res, next) => {
   try {
     const resultado = await EventoModel.remove(req.params.id)
@@ -169,6 +172,7 @@ export const deleteEvento = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Actualiza solo la fecha de cierre del evento
 export const updateFechaCierre = async (req, res, next) => {
   try {
     const evento = await EventoModel.updateFechaCierre(req.params.id, req.body.fecha_cierre)
@@ -177,6 +181,7 @@ export const updateFechaCierre = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Lista participantes de un evento
 export const getParticipantes = async (req, res, next) => {
   try {
     const participantes = await InscripcionModel.findByEvento(req.params.id)
@@ -184,6 +189,7 @@ export const getParticipantes = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Obtiene convocatorias disponibles para un atleta
 export const getConvocatoriasParaAtleta = async (req, res, next) => {
   try {
     const convocatorias = await InscripcionModel.findConvocatoriasParaAtleta(req.atletaId)
@@ -191,6 +197,7 @@ export const getConvocatoriasParaAtleta = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Inscribe a un atleta en una convocatoria
 export const inscribir = async (req, res, next) => {
   try {
     const resultado = await InscripcionModel.inscribir({
@@ -202,6 +209,7 @@ export const inscribir = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Lista inscripciones del atleta autenticado
 export const getInscripcionesByAtleta = async (req, res, next) => {
   try {
     const inscripciones = await InscripcionModel.findByAtleta(req.atletaId)
@@ -209,6 +217,7 @@ export const getInscripcionesByAtleta = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Lista convocatorias abiertas (no finalizadas)
 export const getConvocatoriasAbiertas = async (req, res, next) => {
   try {
     const convocatorias = await InscripcionModel.findConvocatoriasAbiertas()
@@ -216,6 +225,7 @@ export const getConvocatoriasAbiertas = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Club inscribe a un atleta de su club en una convocatoria
 export const inscribirAtletaClub = async (req, res, next) => {
   try {
     const perteneceAlClub = await InscripcionModel.atletaPerteneceAClub(req.body.atleta_id, req.clubId)
@@ -230,6 +240,7 @@ export const inscribirAtletaClub = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Lista inscripciones de un club
 export const getInscripcionesByClub = async (req, res, next) => {
   try {
     const inscripciones = await InscripcionModel.findByClub(req.clubId)
@@ -237,6 +248,7 @@ export const getInscripcionesByClub = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Atleta cancela su propia inscripción
 export const cancelarInscripcion = async (req, res, next) => {
   try {
     const resultado = await InscripcionModel.cancelar(req.params.id, req.atletaId)
@@ -245,8 +257,7 @@ export const cancelarInscripcion = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// Admin da de baja a un atleta de una convocatoria (a diferencia de
-// cancelarInscripcion, que es para que el propio atleta se autocancele)
+// Admin da de baja a un atleta de una convocatoria
 export const removerAtletaDeConvocatoria = async (req, res, next) => {
   try {
     const resultado = await InscripcionModel.removerPorAdmin(req.params.inscripcionId)
@@ -255,8 +266,7 @@ export const removerAtletaDeConvocatoria = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-//AGREGAR AL FINAL DE evento.controller.js
-
+// Obtiene todas las convocatorias de un evento
 export const getConvocatoriasDeEvento = async (req, res, next) => {
   try {
     const convocatorias = await EventoModel.findConvocatoriasByEvento(req.params.id)
@@ -264,33 +274,35 @@ export const getConvocatoriasDeEvento = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Sube archivo de resultados de una convocatoria
 export const subirResultadoConvocatoria = async (req, res, next) => {
   try {
     if (!req.files || !req.files.documentoResultado) {
       return res.status(400).json({ error: 'Falta el archivo de resultados' })
     }
     const convocatoriaId = req.params.convocatoriaId
-    const actual = await EventoModel.findConvocatoriaById(convocatoriaId)
-    if (!actual) return res.status(404).json({ error: 'Convocatoria no encontrada' })
+    const convocatoriaActual = await EventoModel.findConvocatoriaById(convocatoriaId)
+    if (!convocatoriaActual) return res.status(404).json({ error: 'Convocatoria no encontrada' })
 
-    const result = await cloudinary.v2.uploader.upload(req.files.documentoResultado.tempFilePath, {
+    const resultadoSubida = await cloudinary.v2.uploader.upload(req.files.documentoResultado.tempFilePath, {
       folder: `ivd_resultados/convocatoria_${convocatoriaId}`,
       resource_type: 'auto',
       use_filename: true,
     })
-
-    if (actual.documento_resultado_public_id) {
-      await borrarDeCloudinary(actual.documento_resultado_public_id)
+    // Borra el anterior si existía
+    if (convocatoriaActual.documento_resultado_public_id) {
+      await borrarDeCloudinary(convocatoriaActual.documento_resultado_public_id)
     }
 
-    const actualizada = await EventoModel.subirDocumentoResultado(convocatoriaId, {
-      url: result.secure_url,
-      publicId: result.public_id,
+    const convocatoriaActualizada = await EventoModel.subirDocumentoResultado(convocatoriaId, {
+      url: resultadoSubida.secure_url,
+      publicId: resultadoSubida.public_id,
     })
-    res.json({ mensaje: 'Resultado subido correctamente', convocatoria: actualizada })
+    res.json({ mensaje: 'Resultado subido correctamente', convocatoria: convocatoriaActualizada })
   } catch (err) { next(err) }
 }
 
+// Elimina el documento de resultados de una convocatoria
 export const eliminarResultadoConvocatoria = async (req, res, next) => {
   try {
     const publicId = await EventoModel.eliminarDocumentoResultado(req.params.convocatoriaId)
@@ -299,6 +311,7 @@ export const eliminarResultadoConvocatoria = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Lista participantes de una convocatoria específica
 export const getParticipantesPorConvocatoria = async (req, res, next) => {
   try {
     const participantes = await InscripcionModel.findByConvocatoria(req.params.convocatoriaId)
@@ -306,28 +319,28 @@ export const getParticipantesPorConvocatoria = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Agrega una nueva convocatoria a un evento existente
 export const addConvocatoria = async (req, res, next) => {
   try {
     const evento = await EventoModel.findById(req.params.id)
     if (!evento) return res.status(404).json({ error: 'Evento no encontrado' })
-    const convocatoria = await EventoModel.addConvocatoria(req.params.id, req.body)
-    if (convocatoria.error) return res.status(400).json({ error: convocatoria.error })
-    res.status(201).json({ convocatoria })
+    const convocatoriaCreada = await EventoModel.addConvocatoria(req.params.id, req.body)
+    if (convocatoriaCreada.error) return res.status(400).json({ error: convocatoriaCreada.error })
+    res.status(201).json({ convocatoria: convocatoriaCreada })
   } catch (err) { next(err) }
 }
 
+// Actualiza los datos de una convocatoria
 export const updateConvocatoria = async (req, res, next) => {
   try {
-    const actualizada = await EventoModel.updateConvocatoria(req.params.convocatoriaId, req.body)
-    if (!actualizada) return res.status(404).json({ error: 'Convocatoria no encontrada' })
-    if (actualizada.error) return res.status(400).json({ error: actualizada.error })
-    res.json({ mensaje: 'Convocatoria actualizada', convocatoria: actualizada })
+    const convocatoriaActualizada = await EventoModel.updateConvocatoria(req.params.convocatoriaId, req.body)
+    if (!convocatoriaActualizada) return res.status(404).json({ error: 'Convocatoria no encontrada' })
+    if (convocatoriaActualizada.error) return res.status(400).json({ error: convocatoriaActualizada.error })
+    res.json({ mensaje: 'Convocatoria actualizada', convocatoria: convocatoriaActualizada })
   } catch (err) { next(err) }
 }
 
-// Finalizar/reabrir una convocatoria (no la borra, solo cambia si aparece
-// como disponible para los atletas). req.body.estado: true = abierta/reabrir,
-// false = finalizada.
+// Abre o cierra una convocatoria (estado)
 export const toggleEstadoConvocatoria = async (req, res, next) => {
   try {
     const convocatoria = await EventoModel.toggleEstadoConvocatoria(req.params.convocatoriaId, req.body.estado)

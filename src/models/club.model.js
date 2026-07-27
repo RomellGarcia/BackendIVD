@@ -1,8 +1,6 @@
 import { pool } from '../config/db.js'
 
-//Query base reutilizable — trae el club con el nombre de su entrenador
-//principal ya resuelto (si tiene uno asignado), para no necesitar una
-//segunda consulta solo para mostrarlo.
+// Consulta base para obtener datos del club con el entrenador principal asociado
 const CLUB_BASE = `
   SELECT
     c.id, c.nombre, c.direccion, c.telefono, c.email,
@@ -16,9 +14,7 @@ const CLUB_BASE = `
   LEFT JOIN usuarios ue    ON e.usuario_id = ue.id
 `
 
-//Obtener todos los clubes activos (con el conteo de su plantilla, para
-//que la lista de búsqueda y el modal de "Ver perfil" no muestren siempre
-//0 atletas · 0 entrenadores — antes solo findById calculaba esto)
+// Obtiene todos los clubes activos con conteo de atletas y entrenadores
 export const findAll = async () => {
   const { rows } = await pool.query(
     `SELECT
@@ -37,7 +33,7 @@ export const findAll = async () => {
   return rows
 }
 
-//Obtener un club por ID con sus entrenadores y atletas
+// Obtiene un club por ID con conteo de atletas y entrenadores
 export const findById = async (id) => {
   const { rows } = await pool.query(
     `SELECT
@@ -56,7 +52,7 @@ export const findById = async (id) => {
   return rows[0] || null
 }
 
-//Crear club
+// Crea un nuevo club
 export const create = async ({ nombre, direccion, telefono, email, descripcion, lugar_entrenamiento }) => {
   const { rows } = await pool.query(
     `INSERT INTO clubes (nombre, direccion, telefono, email, descripcion, lugar_entrenamiento)
@@ -67,7 +63,7 @@ export const create = async ({ nombre, direccion, telefono, email, descripcion, 
   return rows[0]
 }
 
-//Actualizar club
+// Actualiza los datos de un club y propaga lugar_entrenamiento a sus atletas si cambia
 export const update = async (id, { nombre, direccion, telefono, email, descripcion, estado, lugar_entrenamiento, entrenador_id }) => {
   const { rows } = await pool.query(
     `UPDATE clubes
@@ -87,8 +83,7 @@ export const update = async (id, { nombre, direccion, telefono, email, descripci
   )
   if (!rows[0]) return null
 
-  // Si el club tiene (o le acaban de poner) un lugar de entrenamiento,
-  // se reparte a todos sus atletas — el del club manda sobre el propio.
+  // Si el club tiene lugar de entrenamiento, se copia a todos sus atletas
   if (rows[0].lugar_entrenamiento) {
     await pool.query(
       `UPDATE atletas SET lugar_entrenamiento = $1 WHERE club_id = $2`,
@@ -99,7 +94,7 @@ export const update = async (id, { nombre, direccion, telefono, email, descripci
   return findById(id)
 }
 
-//Eliminar club (soft delete)
+// Desactiva un club (soft delete)
 export const softDelete = async (id) => {
   const { rows } = await pool.query(
     `UPDATE clubes
@@ -111,7 +106,7 @@ export const softDelete = async (id) => {
   return rows[0] || null
 }
 
-//Obtener atletas de un club
+// Lista los atletas pertenecientes a un club
 export const findAtletasByClub = async (clubId) => {
   const { rows } = await pool.query(
     `SELECT 
@@ -129,10 +124,7 @@ export const findAtletasByClub = async (clubId) => {
   return rows
 }
 
-//Obtener entrenadores de un club (para el combo de "Entrenador Principal"
-//del perfil del club — agrega entrenador_id, que es el id que hay que
-//guardar; el "id" de hasta arriba se deja igual que antes por compatibilidad
-//con quien ya lo esté usando como id de usuario)
+// Lista los entrenadores activos de un club (incluye entrenador_id para referencia)
 export const findEntrenadoresByClub = async (clubId) => {
   const { rows } = await pool.query(
     `SELECT 

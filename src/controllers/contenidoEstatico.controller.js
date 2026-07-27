@@ -1,5 +1,6 @@
 import * as ContenidoModel from '../models/contenidoEstatico.model.js'
 
+// Obtiene contenido estático por tipo (mision, vision, politica, terminos)
 export const getByTipo = async (req, res, next) => {
   try {
     const { tipo } = req.params
@@ -12,6 +13,7 @@ export const getByTipo = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Actualiza o crea contenido estático (tipo desde params, datos desde body)
 export const upsert = async (req, res, next) => {
   try {
     const { tipo } = req.params

@@ -45,10 +45,10 @@ app.use('/api', router)
 
 //Health checks
 app.get('/api/test', (req, res) => {
-  res.json({ message: 'Servidor IVD funcionando 🚀', timestamp: new Date() })
+  res.json({ message: 'Servidor IVD funcionando', timestamp: new Date() })
 })
 app.get('/', (req, res) => {
-  res.send('Servidor IVD conectado a PostgreSQL 🚀')
+  res.send('Servidor IVD conectado a PostgreSQL')
 })
 
 app.use(errorHandler)

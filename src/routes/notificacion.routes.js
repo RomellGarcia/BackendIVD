@@ -6,10 +6,12 @@ import { checkClub } from '../middlewares/checkClub.js'
 
 const router = Router()
 
-router.get('/mias',            requireAuth, checkAtleta, NotificacionController.getMisNotificaciones)
-router.put('/marcar-leidas',   requireAuth, checkAtleta, NotificacionController.marcarLeidas)
+// Rutas de notificaciones para atletas
+router.get('/mias', requireAuth, checkAtleta, NotificacionController.getMisNotificaciones)
+router.put('/marcar-leidas', requireAuth, checkAtleta, NotificacionController.marcarLeidas)
 
-router.get('/club/mias',           requireAuth, checkClub, NotificacionController.getMisNotificacionesClub)
-router.put('/club/marcar-leidas',  requireAuth, checkClub, NotificacionController.marcarLeidasClub)
+// Rutas de notificaciones para clubes
+router.get('/club/mias', requireAuth, checkClub, NotificacionController.getMisNotificacionesClub) 
+router.put('/club/marcar-leidas', requireAuth, checkClub, NotificacionController.marcarLeidasClub)
 
 export default router

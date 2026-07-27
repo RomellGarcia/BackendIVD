@@ -1,6 +1,7 @@
 import { pool } from '../config/db.js'
 import * as NotificacionModel from './notificacion.model.js'
 
+// Obtiene convocatorias disponibles para un atleta según su edad y género
 export const findConvocatoriasParaAtleta = async (atletaId) => {
   const { rows } = await pool.query(
     `SELECT
@@ -36,6 +37,7 @@ export const findConvocatoriasParaAtleta = async (atletaId) => {
   return rows
 }
 
+// Lista inscripciones de un club (para ver qué atletas tiene inscritos)
 export const findByClub = async (clubId) => {
   const { rows } = await pool.query(
     `SELECT
@@ -64,24 +66,23 @@ export const findByClub = async (clubId) => {
   )
   return rows
 }
-//Inscribir atleta a convocatoria
-//Inscribir atleta a convocatoria — le asigna un Bib aleatorio único
-//dentro de esa convocatoria (1-999, formateado con ceros al mostrarlo)
+
+// Inscribe a un atleta en una convocatoria, asignándole un número de corredor (bib) único
 export const inscribir = async ({ atletaId, convocatoriaId }) => {
-  //Verificar que la convocatoria existe y el evento sigue abierto
-  const { rows: convRows } = await pool.query(
+  // Verificar que la convocatoria existe y el evento sigue abierto
+  const { rows: convocatoriaInfo } = await pool.query(
     `SELECT c.id, e.fecha_cierre, e.titulo
      FROM convocatorias c
      JOIN eventos e ON c.evento_id = e.id
      WHERE c.id = $1 AND c.estado = true AND e.estado = true`,
     [convocatoriaId]
   )
-  if (!convRows[0]) return { error: 'Convocatoria no encontrada o cerrada' }
-  if (new Date() > new Date(convRows[0].fecha_cierre)) {
+  if (!convocatoriaInfo[0]) return { error: 'Convocatoria no encontrada o cerrada' }
+  if (new Date() > new Date(convocatoriaInfo[0].fecha_cierre)) {
     return { error: 'La convocatoria ya está cerrada' }
   }
 
-  //Verificar que no este ya inscrito en esta convocatoria
+  // Verificar que no esté ya inscrito
   const { rows: yaInscrito } = await pool.query(
     `SELECT id FROM inscripciones
      WHERE atleta_id = $1 AND convocatoria_id = $2`,
@@ -89,7 +90,7 @@ export const inscribir = async ({ atletaId, convocatoriaId }) => {
   )
   if (yaInscrito.length > 0) return { error: 'Ya estás inscrito en esta convocatoria' }
 
-  //Asignar un Bib aleatorio único dentro de esta convocatoria (1-999)
+  // Asignar un bib aleatorio único en el rango 1-999
   let bib = null
   for (let intento = 0; intento < 30; intento++) {
     const candidato = Math.floor(Math.random() * 999) + 1
@@ -111,8 +112,8 @@ export const inscribir = async ({ atletaId, convocatoriaId }) => {
   )
   return { inscripcion: rows[0] }
 }
-//Inscripciones de un atleta
-//Inscripciones de un atleta
+
+// Lista todas las inscripciones de un atleta
 export const findByAtleta = async (atletaId) => {
   const { rows } = await pool.query(
     `SELECT
@@ -137,7 +138,7 @@ export const findByAtleta = async (atletaId) => {
   return rows
 }
 
-//Participantes de un evento
+// Obtiene participantes de un evento (todas las inscripciones de sus convocatorias)
 export const findByEvento = async (eventoId) => {
   const { rows } = await pool.query(
     `SELECT
@@ -163,8 +164,7 @@ export const findByEvento = async (eventoId) => {
   return rows
 }
 
-
-//Para que un club pueda registrar a su atleta
+// Verifica si un atleta pertenece a un club determinado
 export const atletaPerteneceAClub = async (atletaId, clubId) => {
   const { rows } = await pool.query(
     `SELECT id FROM atletas WHERE id = $1 AND club_id = $2`,
@@ -173,6 +173,7 @@ export const atletaPerteneceAClub = async (atletaId, clubId) => {
   return rows.length > 0
 }
 
+// Lista todas las convocatorias abiertas (eventos activos y no cerrados)
 export const findConvocatoriasAbiertas = async () => {
   const { rows } = await pool.query(
     `SELECT
@@ -202,8 +203,7 @@ export const findConvocatoriasAbiertas = async () => {
   return rows
 }
 
-//Cancelar inscripcion (el propio atleta se da de baja de una convocatoria).
-//No se permite cancelar si el evento ya ocurrió.
+// El atleta cancela su propia inscripción (solo si el evento no ha pasado)
 export const cancelar = async (inscripcionId, atletaId) => {
   const { rows } = await pool.query(
     `SELECT i.id, e.fecha
@@ -221,9 +221,7 @@ export const cancelar = async (inscripcionId, atletaId) => {
   return { ok: true }
 }
 
-//Dar de baja a un atleta de una convocatoria (acción del ADMIN, no del
-//propio atleta). A diferencia de cancelar(), no valida quién es el dueño
-//ni bloquea eventos ya pasados -- el admin puede hacerlo siempre.
+// Administrador da de baja a un atleta de una convocatoria (sin restricciones de fecha)
 export const removerPorAdmin = async (inscripcionId) => {
   const { rows } = await pool.query(
     `SELECT i.id, a.usuario_id, e.titulo AS evento_titulo, d.nombre AS disciplina, cat.nombre AS categoria
@@ -247,6 +245,7 @@ export const removerPorAdmin = async (inscripcionId) => {
   return { ok: true }
 }
 
+// Lista participantes de una convocatoria específica (ordenados por número de corredor)
 export const findByConvocatoria = async (convocatoriaId) => {
   const { rows } = await pool.query(
     `SELECT

@@ -1,6 +1,6 @@
 import { pool } from '../config/db.js'
 
-//Crear una notificación para un usuario específico (recibe usuario_id directo)
+// Crea una notificación para un usuario específico
 export const crear = async (usuarioId, mensaje) => {
   const { rows } = await pool.query(
     `INSERT INTO notificaciones (usuario_id, mensaje) VALUES ($1, $2) RETURNING *`,
@@ -9,9 +9,7 @@ export const crear = async (usuarioId, mensaje) => {
   return rows[0]
 }
 
-//Crear la misma notificación para varios usuarios de una vez (ej. todos los
-//inscritos en una convocatoria que se canceló). Recibe una lista de
-//usuario_id (no atleta_id).
+// Crea la misma notificación para varios usuarios
 export const crearParaVarios = async (usuarioIds, mensaje) => {
   if (!usuarioIds.length) return []
   const values = usuarioIds.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2})`).join(', ')
@@ -23,8 +21,7 @@ export const crearParaVarios = async (usuarioIds, mensaje) => {
   return rows
 }
 
-//Notificaciones no leídas de un atleta (resuelve usuario_id internamente a
-//partir de su atleta_id, así el controlador solo necesita req.atletaId)
+// Obtiene notificaciones no leídas de un atleta
 export const findNoLeidasByAtleta = async (atletaId) => {
   const { rows } = await pool.query(
     `SELECT n.id, n.mensaje, n.fecha_creacion
@@ -37,8 +34,7 @@ export const findNoLeidasByAtleta = async (atletaId) => {
   return rows
 }
 
-//Marcar como leídas las notificaciones de un atleta (todas, o solo las que
-//vengan en `ids` si se especifican)
+// Marca como leídas las notificaciones de un atleta
 export const marcarLeidasByAtleta = async (atletaId, ids) => {
   if (!ids?.length) {
     await pool.query(
@@ -56,7 +52,7 @@ export const marcarLeidasByAtleta = async (atletaId, ids) => {
   )
 }
 
-//Crear notificación directa para un club
+// Crea una notificación directa para un club
 export const crearParaClub = async (clubId, mensaje) => {
   const { rows } = await pool.query(
     `INSERT INTO notificaciones (club_id, mensaje) VALUES ($1, $2) RETURNING *`,
@@ -65,7 +61,7 @@ export const crearParaClub = async (clubId, mensaje) => {
   return rows[0]
 }
 
-//Notificaciones no leídas de un club (para el banner del lado del club)
+// Obtiene notificaciones no leídas de un club
 export const findNoLeidasByClub = async (clubId) => {
   const { rows } = await pool.query(
     `SELECT id, mensaje, fecha_creacion
@@ -77,6 +73,7 @@ export const findNoLeidasByClub = async (clubId) => {
   return rows
 }
 
+// Marca como leídas las notificaciones de un club
 export const marcarLeidasByClub = async (clubId, ids) => {
   if (!ids?.length) {
     await pool.query(`UPDATE notificaciones SET leida = true WHERE club_id = $1`, [clubId])
