@@ -1,6 +1,6 @@
 import * as EntrenadorModel from '../models/entrenador.model.js'
 
-// Obtiene perfil del entrenador autenticado
+// Obtiene perfil del entrenador autenticado (usuarioId desde token)
 export const getPerfil = async (req, res, next) => {
   try {
     const perfil = await EntrenadorModel.findByUsuarioId(req.usuarioId)
@@ -55,13 +55,15 @@ export const solicitarClub = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// Actualiza perfil del entrenador 
+// Actualiza perfil del entrenador
 export const updatePerfil = async (req, res, next) => {
   try {
-    const { telefono, anos_experiencia, certificaciones, especialidades } = req.body
+    const { telefono, anos_experiencia, lugar_entrenamiento, certificaciones, especialidades } = req.body
 
-    await EntrenadorModel.updatePerfil(req.entrenadorId, req.usuarioId, { telefono, anos_experiencia })
+    // Actualiza datos base del perfil
+    await EntrenadorModel.updatePerfil(req.entrenadorId, req.usuarioId, { telefono, anos_experiencia, lugar_entrenamiento })
 
+    // Actualiza campos separados si vienen en la petición
     if (certificaciones !== undefined) {
       await EntrenadorModel.updateCertificaciones(req.entrenadorId, certificaciones)
     }
@@ -73,7 +75,7 @@ export const updatePerfil = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// El entrenador sale de su club actual
+// NUEVO: el entrenador sale de su club por su cuenta.
 export const salirClub = async (req, res, next) => {
   try {
     const resultado = await EntrenadorModel.salirDelClub(req.entrenadorId)
@@ -82,7 +84,11 @@ export const salirClub = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// Sugerencias para autocompletar certificaciones 
+// NUEVO: sugerencias para el Autocomplete de "Certificaciones" en el
+// registro y en el perfil — lo que ya existe en el catálogo real
+// (certificaciones_catalogo), no depende de ningún entrenador en
+// específico. Debe quedar como ruta PÚBLICA (sin requireAuth): se usa en
+// Registro.jsx, antes de que exista una sesión.
 export const getCertificacionesSugeridas = async (req, res, next) => {
   try {
     const certificaciones = await EntrenadorModel.findCertificacionesSugeridas()
@@ -90,7 +96,7 @@ export const getCertificacionesSugeridas = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// Sugerencias para autocompletar especialidades 
+// Mismo criterio para especialidades.
 export const getEspecialidadesSugeridas = async (req, res, next) => {
   try {
     const especialidades = await EntrenadorModel.findEspecialidadesSugeridas()

@@ -7,6 +7,7 @@ import {
   sendSalidaClubEmail,
   sendSolicitudRecibidaClubEmail,
   sendInvitacionAceptadaClubEmail,
+  sendInvitacionRechazadaClubEmail,
   sendAtletaSalioClubEmail
 } from '../services/email.service.js'
 import * as NotificacionModel from './notificacion.model.js'
@@ -403,6 +404,7 @@ export const procesarSolicitudClub = async (solicitudId, estado) => {
 
   let clubQueSaleInfo = null
   let invitacionAceptadaInfo = null
+  let invitacionRechazadaInfo = null
 
   if (estado === 'aceptada') {
     // Obtener atleta_id desde usuario_id
@@ -463,6 +465,19 @@ export const procesarSolicitudClub = async (solicitudId, estado) => {
     }
   }
 
+  // Si fue una invitación y el atleta la rechazó, avisar al club igual
+  // que cuando la acepta — mismo criterio que updateSolicitud del lado
+  // entrenador.
+  if (estado === 'rechazada' && solicitud.tipo === 'invitacion' && solicitud.club_id) {
+    const { rows: datosInv } = await pool.query(
+      `SELECT u.nombre AS atleta_nombre, c.email AS club_email, c.nombre AS club_nombre
+       FROM usuarios u, clubes c
+       WHERE u.id = $1 AND c.id = $2`,
+      [solicitud.usuario_id, solicitud.club_id]
+    )
+    invitacionRechazadaInfo = datosInv[0] || null
+  }
+
   // Notificar al atleta el resultado (si hay club involucrado)
   if ((estado === 'aceptada' || estado === 'rechazada') && solicitud.club_id) {
     try {
@@ -501,6 +516,20 @@ export const procesarSolicitudClub = async (solicitudId, estado) => {
       })
     } catch (err) {
       console.error('No se pudo notificar al club la invitación aceptada:', err)
+    }
+  }
+
+  // Notificar al club que su invitación fue rechazada
+  if (invitacionRechazadaInfo) {
+    try {
+      await NotificacionModel.crearParaClub(solicitud.club_id, `El atleta "${invitacionRechazadaInfo.atleta_nombre}" rechazó tu invitación.`)
+      await sendInvitacionRechazadaClubEmail({
+        to: invitacionRechazadaInfo.club_email,
+        clubNombre: invitacionRechazadaInfo.club_nombre,
+        atletaNombre: invitacionRechazadaInfo.atleta_nombre,
+      })
+    } catch (err) {
+      console.error('No se pudo notificar al club la invitación rechazada:', err)
     }
   }
 

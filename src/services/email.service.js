@@ -219,6 +219,21 @@ export const sendSolicitudRecibidaClubEmail = async ({ to, clubNombre, atletaNom
   })
 }
 
+// Mismo criterio, para cuando quien solicita unirse es un entrenador.
+export const sendSolicitudEntrenadorRecibidaClubEmail = async ({ to, clubNombre, entrenadorNombre }) => {
+  await sendEmail({
+    to,
+    subject: `${entrenadorNombre} solicitó unirse a tu club`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '📨', tituloEtiqueta: 'Nueva solicitud', nombre: clubNombre,
+      cuerpoHtml: `
+        ${parrafo(`El entrenador <strong>${entrenadorNombre}</strong> solicitó unirse a tu club.`)}
+        ${parrafo('Inicia sesión en la plataforma para revisar la solicitud y aceptarla o rechazarla.')}
+      `,
+    }),
+  })
+}
+
 export const sendInvitacionAceptadaClubEmail = async ({ to, clubNombre, atletaNombre }) => {
   await sendEmail({
     to,
@@ -226,6 +241,18 @@ export const sendInvitacionAceptadaClubEmail = async ({ to, clubNombre, atletaNo
     htmlContent: wrapperEmailIVD({
       emoji: '✅', tituloEtiqueta: 'Invitación aceptada', nombre: clubNombre, acento: PALETA.verde,
       cuerpoHtml: parrafo(`El atleta <strong>${atletaNombre}</strong> aceptó tu invitación y ya forma parte de tu club.`),
+    }),
+  })
+}
+
+// Mismo criterio, para cuando el atleta rechaza la invitación.
+export const sendInvitacionRechazadaClubEmail = async ({ to, clubNombre, atletaNombre }) => {
+  await sendEmail({
+    to,
+    subject: `${atletaNombre} rechazó tu invitación`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '✖️', tituloEtiqueta: 'Invitación rechazada', nombre: clubNombre,
+      cuerpoHtml: parrafo(`El atleta <strong>${atletaNombre}</strong> rechazó tu invitación para unirse al club.`),
     }),
   })
 }
@@ -238,6 +265,18 @@ export const sendInvitacionEntrenadorAceptadaClubEmail = async ({ to, clubNombre
     htmlContent: wrapperEmailIVD({
       emoji: '✅', tituloEtiqueta: 'Invitación aceptada', nombre: clubNombre, acento: PALETA.verde,
       cuerpoHtml: parrafo(`El entrenador <strong>${entrenadorNombre}</strong> aceptó tu invitación y ya forma parte de tu club.`),
+    }),
+  })
+}
+
+// Mismo criterio, para cuando el entrenador rechaza la invitación.
+export const sendInvitacionEntrenadorRechazadaClubEmail = async ({ to, clubNombre, entrenadorNombre }) => {
+  await sendEmail({
+    to,
+    subject: `${entrenadorNombre} rechazó tu invitación`,
+    htmlContent: wrapperEmailIVD({
+      emoji: '✖️', tituloEtiqueta: 'Invitación rechazada', nombre: clubNombre,
+      cuerpoHtml: parrafo(`El entrenador <strong>${entrenadorNombre}</strong> rechazó tu invitación para unirse al club.`),
     }),
   })
 }

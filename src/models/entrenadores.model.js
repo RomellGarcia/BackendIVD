@@ -6,7 +6,8 @@ import {
   sendSalidaClubEmail,
   sendSolicitudAceptadaEmail,
   sendSolicitudRechazadaEmail,
-  sendInvitacionEntrenadorAceptadaClubEmail
+  sendInvitacionEntrenadorAceptadaClubEmail,
+  sendInvitacionEntrenadorRechazadaClubEmail
 } from '../services/email.service.js'
 
 // Lista todos los entrenadores con filtros (club_id, sin_club)
@@ -238,6 +239,8 @@ export const updateSolicitud = async (solicitudId, estado, actor = {}) => {
 
       if (estado === 'aceptada') {
         await sendInvitacionEntrenadorAceptadaClubEmail({ to: solicitud.club_email, clubNombre: solicitud.club_nombre, entrenadorNombre: solicitud.entrenador_nombre })
+      } else {
+        await sendInvitacionEntrenadorRechazadaClubEmail({ to: solicitud.club_email, clubNombre: solicitud.club_nombre, entrenadorNombre: solicitud.entrenador_nombre })
       }
     }
   } catch (err) {
