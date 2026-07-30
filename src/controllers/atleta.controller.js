@@ -76,6 +76,7 @@ export const crearSolicitudClub = async (req, res, next) => {
       tipo:     req.body.tipo
     })
     if (resultado.error) return res.status(400).json({ error: resultado.error })
+    if (resultado.ok) return res.status(200).json({ mensaje: 'El club ya te había invitado — quedaste asociado automáticamente' })
     res.status(201).json({ mensaje: 'Solicitud enviada correctamente', solicitud: resultado.solicitud })
   } catch (err) { next(err) }
 }
@@ -110,6 +111,7 @@ export const invitarClub = async (req, res, next) => {
       clubId:   req.clubId
     })
     if (resultado.error) return res.status(400).json({ error: resultado.error })
+    if (resultado.ok) return res.status(200).json({ mensaje: 'El atleta ya te había solicitado unirse — quedó asociado automáticamente' })
     res.status(201).json({ mensaje: 'Invitación enviada correctamente', solicitud: resultado.solicitud })
   } catch (err) { next(err) }
 }

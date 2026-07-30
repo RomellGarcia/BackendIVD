@@ -252,13 +252,21 @@ export const remove = async (atletaId) => {
 // Crea una solicitud de asociación a un club
 export const crearSolicitudClub = async ({ atletaId, clubId, tipo }) => {
   // Verificar si ya tiene solicitud pendiente
-  const { rows: solicitudPendiente } = await pool.query(
-    `SELECT id FROM solicitudes_club
+  const { rows: pendientes } = await pool.query(
+    `SELECT * FROM solicitudes_club
      WHERE usuario_id = (SELECT usuario_id FROM atletas WHERE id = $1)
      AND estado = 'pendiente'`,
     [atletaId]
   )
-  if (solicitudPendiente.length > 0) return { error: 'Ya tienes una solicitud pendiente' }
+  if (pendientes.length > 0) {
+    const pendiente = pendientes[0]
+    // El club ya lo había invitado a este mismo club — aceptar esa
+    // invitación en vez de bloquear la solicitud por duplicado.
+    if (tipo === 'asociar' && pendiente.tipo === 'invitacion' && pendiente.club_id === clubId) {
+      return await procesarSolicitudClub(pendiente.id, 'aceptada')
+    }
+    return { error: 'Ya tienes una solicitud pendiente' }
+  }
 
   // Si quiere asociarse, verificar que no tenga club activo
   if (tipo === 'asociar') {
@@ -313,12 +321,20 @@ export const crearInvitacionClub = async ({ atletaId, clubId }) => {
   if (!atleta) return { error: 'Atleta no encontrado' }
   if (atleta.club_id) return { error: 'El atleta ya pertenece a un club' }
 
-  const { rows: solicitudPendiente } = await pool.query(
-    `SELECT id FROM solicitudes_club
+  const { rows: pendientes } = await pool.query(
+    `SELECT * FROM solicitudes_club
      WHERE usuario_id = $1 AND club_id = $2 AND estado = 'pendiente'`,
     [atleta.usuario_id, clubId]
   )
-  if (solicitudPendiente.length > 0) return { error: 'Ya existe una invitación o solicitud pendiente con este atleta' }
+  if (pendientes.length > 0) {
+    const pendiente = pendientes[0]
+    // El atleta ya había solicitado unirse a este club — aceptar esa
+    // solicitud en vez de bloquear la invitación por duplicado.
+    if (pendiente.tipo === 'asociar') {
+      return await procesarSolicitudClub(pendiente.id, 'aceptada')
+    }
+    return { error: 'Ya existe una invitación o solicitud pendiente con este atleta' }
+  }
 
   const { rows } = await pool.query(
     `INSERT INTO solicitudes_club (usuario_id, club_id, tipo, estado)

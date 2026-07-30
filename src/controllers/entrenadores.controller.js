@@ -62,6 +62,7 @@ export const invitarClub = async (req, res, next) => {
       clubId: req.body.club_id
     })
     if (invitacion.error) return res.status(400).json({ error: invitacion.error })
+    if (invitacion.estado === 'aceptada') return res.status(200).json({ mensaje: 'El entrenador ya te había solicitado unirse — quedó asociado automáticamente' })
     res.status(201).json({ mensaje: 'Invitación enviada correctamente', solicitud: invitacion.solicitud })
   } catch (err) { next(err) }
 }

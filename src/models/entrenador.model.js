@@ -1,6 +1,7 @@
 import { pool } from '../config/db.js'
 import * as NotificacionModel from './notificacion.model.js'
 import { sendEntrenadorSalioClubEmail, sendSalidaClubEmail, sendSolicitudEntrenadorRecibidaClubEmail } from '../services/email.service.js'
+import { updateSolicitud } from './entrenadores.model.js'
 
 //Perfil completo del entrenador (el que está logueado)
 export const findByUsuarioId = async (usuarioId) => {
@@ -105,12 +106,20 @@ export const getActividad = async () => {
 export const crearSolicitudClub = async ({ entrenadorId, clubId, mensaje }) => {
   // Verificar si ya hay solicitud pendiente o aceptada
   const { rows: existente } = await pool.query(
-    `SELECT id FROM solicitudes_entrenadores
+    `SELECT * FROM solicitudes_entrenadores
      WHERE entrenador_id = $1 AND club_id = $2
      AND estado IN ('pendiente', 'aceptada')`,
     [entrenadorId, clubId]
   )
-  if (existente.length > 0) return { error: 'Ya tienes una solicitud activa para este club' }
+  if (existente.length > 0) {
+    const pendiente = existente[0]
+    // El club ya lo había invitado a este mismo club — aceptar esa
+    // invitación en vez de bloquear la solicitud por duplicado.
+    if (pendiente.estado === 'pendiente' && pendiente.tipo === 'invitacion') {
+      return await updateSolicitud(pendiente.id, 'aceptada', { entrenadorId })
+    }
+    return { error: 'Ya tienes una solicitud activa para este club' }
+  }
 
   const { rows } = await pool.query(
     `INSERT INTO solicitudes_entrenadores (entrenador_id, club_id, mensaje, estado)

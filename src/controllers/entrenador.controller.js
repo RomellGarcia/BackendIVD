@@ -51,6 +51,7 @@ export const solicitarClub = async (req, res, next) => {
       mensaje
     })
     if (solicitudCreada.error) return res.status(400).json({ error: solicitudCreada.error })
+    if (solicitudCreada.estado === 'aceptada') return res.status(200).json({ mensaje: 'El club ya te había invitado — quedaste asociado automáticamente' })
     res.status(201).json({ mensaje: 'Solicitud enviada correctamente', solicitud: solicitudCreada.solicitud })
   } catch (err) { next(err) }
 }

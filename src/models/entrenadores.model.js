@@ -155,12 +155,20 @@ export const crearInvitacionClub = async ({ entrenadorId, clubId }) => {
   if (!entrenador) return { error: 'Entrenador no encontrado' }
   if (entrenador.club_id) return { error: 'El entrenador ya pertenece a un club' }
 
-  const { rows: pendiente } = await pool.query(
-    `SELECT id FROM solicitudes_entrenadores
+  const { rows: pendientes } = await pool.query(
+    `SELECT * FROM solicitudes_entrenadores
      WHERE entrenador_id = $1 AND club_id = $2 AND estado = 'pendiente'`,
     [entrenadorId, clubId]
   )
-  if (pendiente.length > 0) return { error: 'Ya existe una invitación o solicitud pendiente con este entrenador' }
+  if (pendientes.length > 0) {
+    const pendiente = pendientes[0]
+    // El entrenador ya había solicitado unirse a este club — aceptar esa
+    // solicitud en vez de bloquear la invitación por duplicado.
+    if (pendiente.tipo !== 'invitacion') {
+      return await updateSolicitud(pendiente.id, 'aceptada', { clubId })
+    }
+    return { error: 'Ya existe una invitación o solicitud pendiente con este entrenador' }
+  }
 
   const { rows } = await pool.query(
     `INSERT INTO solicitudes_entrenadores (entrenador_id, club_id, tipo, estado)
