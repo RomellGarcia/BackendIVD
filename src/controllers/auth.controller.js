@@ -128,3 +128,15 @@ export const me = async (req, res, next) => {
     next(err)
   }
 }
+
+// Cambia la contraseña del usuario autenticado
+export const changePassword = async (req, res, next) => {
+  try {
+    const { password } = req.body
+    const { error } = await supabase.auth.admin.updateUserById(req.user.id, { password })
+    if (error) return res.status(400).json({ error: error.message })
+    res.json({ mensaje: 'Contraseña actualizada correctamente' })
+  } catch (err) {
+    next(err)
+  }
+}

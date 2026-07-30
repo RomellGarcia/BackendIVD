@@ -11,6 +11,7 @@ import perfilEmpresaRoutes     from './perfilEmpresa.routes.js'
 import catalogosRoutes         from './catalogos.routes.js'
 import notificacionRoutes      from './notificacion.routes.js'
 import recuperarRoutes         from './recuperarPassword.routes.js'
+import adminRoutes             from './admin.routes.js'
 
 const router = Router()
 
@@ -38,5 +39,7 @@ router.use('/catalogos', catalogosRoutes)
 router.use('/notificaciones', notificacionRoutes)
 // Recuperación de contraseña
 router.use('/recuperar', recuperarRoutes)
+// Administradores (listar y crear)
+router.use('/admins', adminRoutes)
 
 export { router }
