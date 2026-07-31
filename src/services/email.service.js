@@ -1,10 +1,3 @@
-// Brevo (antes Sendinblue) — API HTTP, funciona en Vercel. 100% gratis
-// (300 correos/día, sin tarjeta) y NO requiere comprar un dominio: basta
-// con verificar un correo tuyo (tu Gmail, por ejemplo) como remitente.
-//
-// Variables de entorno:
-//   BREVO_API_KEY, EMAIL_FROM_EMAIL, EMAIL_FROM_NAME
-
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
 
 const DEFAULT_SENDER = {
@@ -110,17 +103,6 @@ const listaAtletasHtml = (atletas) => `
 // ─────────────────────────────────────────────────────────────────────────
 // Cuenta / acceso
 // ─────────────────────────────────────────────────────────────────────────
-
-export const sendWelcomeEmail = async ({ to, nombre }) => {
-  await sendEmail({
-    to,
-    subject: 'Bienvenido al IVD',
-    htmlContent: wrapperEmailIVD({
-      emoji: '👋', tituloEtiqueta: 'Cuenta creada', nombre, acento: PALETA.verde,
-      cuerpoHtml: parrafo('Tu cuenta en el Instituto Veracruzano del Deporte fue creada exitosamente. Ya puedes iniciar sesión y explorar los eventos disponibles.'),
-    }),
-  })
-}
 
 export const sendPasswordResetEmail = async ({ to, nombre, codigo }) => {
   await sendEmail({

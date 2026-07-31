@@ -7,8 +7,3 @@ export const ok = (res, data = {}, status = 200) => {
 export const error = (res, message, status = 400) => {
   return res.status(status).json({ ok: false, error: message })
 }
-
-// Respuesta 404
-export const notFound = (res, message = 'Recurso no encontrado') => {
-  return res.status(404).json({ ok: false, error: message })
-}

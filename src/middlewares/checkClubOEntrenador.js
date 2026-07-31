@@ -1,13 +1,11 @@
 import { pool } from '../config/db.js'
+import { resolverClubPorEmail } from '../utils/resolverUsuario.js'
 
 export const checkClubOEntrenador = async (req, res, next) => {
   try {
-    const { rows: clubRows } = await pool.query(
-      `SELECT id AS club_id FROM clubes WHERE email = $1 AND estado = 'activo'`,
-      [req.user.email]
-    )
-    if (clubRows[0]) {
-      req.clubId = clubRows[0].club_id
+    const club = await resolverClubPorEmail(req.user.email)
+    if (club) {
+      req.clubId = club.club_id
       return next()
     }
 
