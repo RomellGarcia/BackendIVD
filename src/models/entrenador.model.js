@@ -88,18 +88,13 @@ export const getStats = async (entrenadorId) => {
 //Actividad reciente: próximos 5 eventos
 export const getActividad = async () => {
   const { rows } = await pool.query(
-    `SELECT id, titulo, lugar, fecha, descripcion
+    `SELECT id, titulo, lugar, hora, fecha
      FROM eventos
      WHERE fecha >= CURRENT_DATE AND estado = true
      ORDER BY fecha ASC
      LIMIT 5`
   )
-  return rows.map(e => ({
-    tipo: 'evento',
-    titulo: e.titulo,
-    descripcion: `${e.titulo} — ${e.lugar}`,
-    fecha: e.fecha
-  }))
+  return rows
 }
 
 //Solicitar unirse a un club
