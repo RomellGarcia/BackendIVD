@@ -12,7 +12,4 @@ router.get('/', PerfilController.get)
 // Actualiza los datos del perfil (requiere autenticación)
 router.put('/', requireAuth, validate(updatePerfilSchema), PerfilController.update)
 
-// Actualiza el logo de la empresa (requiere autenticación)
-router.put('/logo', requireAuth, PerfilController.updateLogo)
-
 export default router

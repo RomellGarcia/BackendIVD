@@ -1,5 +1,4 @@
 import { pool } from '../config/db.js'
-import cloudinary from 'cloudinary'
 
 // Obtiene perfil de la empresa con sus redes sociales
 export const find = async () => {
@@ -68,23 +67,4 @@ export const update = async ({ nombre_empresa, eslogan, direccion, correo, telef
   } finally {
     client.release()
   }
-}
-
-// Actualiza solo el logo, subiendo la imagen a Cloudinary
-export const updateLogo = async (tempFilePath) => {
-  const { rows: perfilExistente } = await pool.query(`SELECT id FROM perfil_empresa LIMIT 1`)
-  if (!perfilExistente[0]) throw new Error('No existe perfil registrado')
-
-  const resultadoSubida = await cloudinary.v2.uploader.upload(tempFilePath, {
-    folder: 'instituto-veracruzano-deporte/perfil'
-  })
-
-  const { rows } = await pool.query(
-    `UPDATE perfil_empresa
-     SET logo = $1, fecha_actualizacion = CURRENT_TIMESTAMP
-     WHERE id = $2
-     RETURNING logo`,
-    [resultadoSubida.secure_url, perfilExistente[0].id]
-  )
-  return rows[0]
 }
