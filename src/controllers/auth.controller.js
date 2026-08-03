@@ -37,24 +37,42 @@ export const register = async (req, res, next) => {
     })
 
     if (error) return res.status(400).json({ error: error.message })
+    console.log('[registro] rol recibido:', rol, '| user.id de Supabase:', data.user?.id)
+
     if (rol === 'entrenador' && data.user?.id) {
       const { anos_experiencia, especialidades, certificaciones } = req.body
+      console.log('[registro-entrenador] datos profesionales recibidos:', { anos_experiencia, especialidades, certificaciones })
       try {
-        const usuario = await findBySupabaseUid(data.user.id)
-        const entrenador = usuario ? await EntrenadorModel.findByUsuarioId(usuario.id) : null
+        // La fila de entrenadores la crea un trigger en la base de datos justo
+        // después del signUp — puede tardar un instante, así que reintentamos
+        // unas cuantas veces antes de darnos por vencidos.
+        let usuario = null
+        let entrenador = null
+        for (let intento = 0; intento < 5 && !entrenador; intento++) {
+          if (intento > 0) await new Promise((r) => setTimeout(r, 400))
+          usuario = await findBySupabaseUid(data.user.id)
+          entrenador = usuario ? await EntrenadorModel.findByUsuarioId(usuario.id) : null
+          console.log(`[registro-entrenador] intento ${intento + 1}: usuario=${usuario?.id ?? 'null'} entrenador=${entrenador?.id ?? 'null'}`)
+        }
+
         if (entrenador) {
           if (anos_experiencia !== undefined) {
             await EntrenadorModel.updatePerfil(entrenador.id, usuario.id, { anos_experiencia })
+            console.log('[registro-entrenador] anos_experiencia guardado OK')
           }
           if (especialidades?.length) {
             await EntrenadorModel.updateEspecialidades(entrenador.id, especialidades)
+            console.log('[registro-entrenador] especialidades guardadas OK:', especialidades)
           }
           if (certificaciones?.length) {
             await EntrenadorModel.updateCertificaciones(entrenador.id, certificaciones)
+            console.log('[registro-entrenador] certificaciones guardadas OK:', certificaciones)
           }
+        } else {
+          console.error('[registro-entrenador] NO se encontró el registro de entrenador tras 5 intentos; no se guardó su información profesional')
         }
       } catch (errPerfil) {
-        console.error('No se pudo guardar la información profesional del entrenador:', errPerfil.message)
+        console.error('[registro-entrenador] ERROR al guardar información profesional:', errPerfil)
       }
     }
 
@@ -103,6 +121,10 @@ export const login = async (req, res, next) => {
     if (error) return res.status(401).json({ error: 'Credenciales incorrectas' })
 
     const usuario = await findBySupabaseUid(data.user.id)
+    if (!usuario) {
+      console.error('[login] Cuenta autenticada en Supabase pero sin fila en la tabla usuarios. supabase_uid:', data.user.id, 'email:', emailToUse)
+      return res.status(401).json({ error: 'Tu cuenta no está completamente registrada en el sistema. Contacta al administrador.' })
+    }
 
     // Validar que el rol seleccionado coincida con el rol real del usuario
     if (rol && usuario.rol !== mapRolFrontendToDB(rol)) {

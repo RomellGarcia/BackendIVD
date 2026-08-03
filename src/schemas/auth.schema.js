@@ -28,7 +28,12 @@ const clubSchema = baseSchema.extend({
 
 export const registerSchema = z.discriminatedUnion('rol', [
   personalSchema.extend({ rol: z.literal('atleta') }),
-  personalSchema.extend({ rol: z.literal('entrenador') }),
+  personalSchema.extend({
+    rol: z.literal('entrenador'),
+    especialidades: z.array(z.string()).optional(),
+    certificaciones: z.array(z.string()).optional(),
+    anos_experiencia: z.coerce.number().int().min(0).optional(),
+  }),
   clubSchema,
 ])
 
