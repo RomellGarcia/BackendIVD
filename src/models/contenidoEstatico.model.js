@@ -15,7 +15,7 @@ export const findByTipo = async (tipo) => {
   return rows[0] || null
 }
 
-//Actualizar (upsert)si no existe el tipo lo crea, si existe lo actualiza
+//Actualizar si no existe el tipo lo crea, si existe lo actualiza
 export const upsert = async (tipo, { titulo, contenido }) => {
   const { rows } = await pool.query(
     `INSERT INTO contenido_estatico (tipo, titulo, contenido)

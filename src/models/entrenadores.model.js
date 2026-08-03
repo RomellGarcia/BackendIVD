@@ -162,8 +162,7 @@ export const crearInvitacionClub = async ({ entrenadorId, clubId }) => {
   )
   if (pendientes.length > 0) {
     const pendiente = pendientes[0]
-    // El entrenador ya había solicitado unirse a este club — aceptar esa
-    // solicitud en vez de bloquear la invitación por duplicado.
+    // El entrenador ya había solicitado unirse a este club - acepta esta
     if (pendiente.tipo !== 'invitacion') {
       return await updateSolicitud(pendiente.id, 'aceptada', { clubId })
     }

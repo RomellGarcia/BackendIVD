@@ -36,7 +36,7 @@ export const findByUsuarioId = async (usuarioId) => {
   return rows[0] || null
 }
 
-// Listado de atletas con filtros opcionales (club_id, sin_club)
+// Listado de atletas con filtros opcionales
 export const findAll = async ({ clubId, sinClub } = {}) => {
   let whereClause = 'WHERE 1=1'
   const params = []
@@ -260,8 +260,7 @@ export const crearSolicitudClub = async ({ atletaId, clubId, tipo }) => {
   )
   if (pendientes.length > 0) {
     const pendiente = pendientes[0]
-    // El club ya lo había invitado a este mismo club — aceptar esa
-    // invitación en vez de bloquear la solicitud por duplicado.
+    // El club ya lo había invitado a este mismo club - aceptar esa
     if (tipo === 'asociar' && pendiente.tipo === 'invitacion' && pendiente.club_id === clubId) {
       return await procesarSolicitudClub(pendiente.id, 'aceptada')
     }
@@ -328,8 +327,7 @@ export const crearInvitacionClub = async ({ atletaId, clubId }) => {
   )
   if (pendientes.length > 0) {
     const pendiente = pendientes[0]
-    // El atleta ya había solicitado unirse a este club — aceptar esa
-    // solicitud en vez de bloquear la invitación por duplicado.
+    // El atleta ya había solicitado unirse a este club - aceptar
     if (pendiente.tipo === 'asociar') {
       return await procesarSolicitudClub(pendiente.id, 'aceptada')
     }
@@ -481,9 +479,7 @@ export const procesarSolicitudClub = async (solicitudId, estado) => {
     }
   }
 
-  // Si fue una invitación y el atleta la rechazó, avisar al club igual
-  // que cuando la acepta — mismo criterio que updateSolicitud del lado
-  // entrenador.
+  // Si fue una invitación y el atleta la rechazó, avisar al club igual que cuando la acepta 
   if (estado === 'rechazada' && solicitud.tipo === 'invitacion' && solicitud.club_id) {
     const { rows: datosInv } = await pool.query(
       `SELECT u.nombre AS atleta_nombre, c.email AS club_email, c.nombre AS club_nombre
