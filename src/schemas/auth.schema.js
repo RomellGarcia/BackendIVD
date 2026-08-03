@@ -1,4 +1,3 @@
-// src/schemas/auth.schema.js
 import { z } from 'zod'
 
 const baseSchema = z.object({
@@ -33,7 +32,6 @@ export const registerSchema = z.discriminatedUnion('rol', [
   clubSchema,
 ])
 
-// Para crear administradores (solo accesible por un admin ya autenticado)
 export const crearAdminSchema = z.object({
   email:    z.string().email('Email inválido'),
   password: z.string().min(8, 'Mínimo 8 caracteres'),

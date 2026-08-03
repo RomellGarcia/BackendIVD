@@ -37,11 +37,7 @@ router.delete('/inscripciones/:id', requireAuth, checkAtleta, EventoController.c
 router.get('/mis-inscripciones-club', requireAuth, checkClub, EventoController.getInscripcionesByClub)
 router.post('/inscripciones/club',    requireAuth, checkClub, EventoController.inscribirAtletaClub)
 
-// Convocatorias abiertas (requiere autenticación) — DEBE ir antes de
-// '/:id': ambas rutas tienen un solo segmento (/eventos/algo), y como
-// Express hace match en el orden en que se registran, si '/:id' queda
-// primero se traga cualquier texto — incluida esta ruta — como si fuera
-// un id numérico, y truena al intentar convertirlo en la consulta SQL.
+// Convocatorias abiertas (requiere autenticación)
 router.get('/convocatorias-abiertas', requireAuth, EventoController.getConvocatoriasAbiertas)
 
 // Rutas públicas (listado y detalle de eventos)
