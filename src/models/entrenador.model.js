@@ -48,26 +48,6 @@ export const findByUsuarioId = async (usuarioId) => {
   return entrenador
 }
 
-//Obtener atletas del mismo club que el entrenador
-export const findAtletasByEntrenador = async (entrenadorId) => {
-  const { rows } = await pool.query(
-    `SELECT
-      a.id AS atleta_id,
-      u.id, u.nombre, u.apellido_paterno, u.apellido_materno,
-      u.email, u.telefono, u.fecha_nacimiento,
-      g.nombre AS genero,
-      a.municipio, a.lugar_entrenamiento, a.fecha_ingreso_club
-     FROM entrenadores e
-     JOIN atletas a ON a.club_id = e.club_id
-     JOIN usuarios u ON a.usuario_id = u.id
-     LEFT JOIN generos g ON u.genero_id = g.id
-     WHERE e.id = $1 AND e.club_id IS NOT NULL
-     ORDER BY u.apellido_paterno ASC`,
-    [entrenadorId]
-  )
-  return rows
-}
-
 //Stats del entrenador para su dashboard
 export const getStats = async (entrenadorId) => {
   const { rows } = await pool.query(

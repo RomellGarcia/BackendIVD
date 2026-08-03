@@ -25,14 +25,6 @@ export const getActividad = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// Lista atletas asignados al entrenador
-export const getAtletas = async (req, res, next) => {
-  try {
-    const atletas = await EntrenadorModel.findAtletasByEntrenador(req.entrenadorId)
-    res.json({ atletas })
-  } catch (err) { next(err) }
-}
-
 // Lista solicitudes pendientes del entrenador para unirse a clubes
 export const getSolicitudes = async (req, res, next) => {
   try {

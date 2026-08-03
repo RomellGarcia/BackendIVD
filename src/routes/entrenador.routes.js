@@ -19,9 +19,8 @@ router.get('/perfil', EntrenadorController.getPerfil)
 router.get('/stats', EntrenadorController.getStats)
 router.get('/actividad', EntrenadorController.getActividad)
 
-// Atletas y solicitudes del entrenador
-router.get('/atletas', EntrenadorController.getAtletas)
-router.get('/solicitudes', EntrenadorController.getSolicitudes)
+// Solicitudes del entrenador
++router.get('/solicitudes', EntrenadorController.getSolicitudes)
 
 // Actualizaciones y acciones
 router.put('/perfil', validate(updatePerfilSchema), EntrenadorController.updatePerfil)
