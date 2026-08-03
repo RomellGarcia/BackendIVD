@@ -2,7 +2,7 @@ import { pool } from '../config/db.js'
 import * as NotificacionModel from './notificacion.model.js'
 import { sendResultadosPublicadosEmail, sendResultadosPublicadosClubEmail } from '../services/email.service.js'
 
-// Disciplinas de campo (salto/lanzamiento): gana la marca MÁS ALTA.
+// Disciplinas de campo (salto/lanzamiento) gana la marca MÁS ALTA.
 // Las demás (carreras, vallas, marcha, relevos) son por tiempo: gana la MÁS BAJA.
 const DISCIPLINAS_DISTANCIA = new Set([
   'Salto de longitud',
