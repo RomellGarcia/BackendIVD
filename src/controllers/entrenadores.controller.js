@@ -54,7 +54,7 @@ export const updateSolicitud = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// Invita a un entrenador independiente a un club (club_id viene en body)
+// Invita a un entrenador independiente a un club
 export const invitarClub = async (req, res, next) => {
   try {
     const invitacion = await EntrenadoresModel.crearInvitacionClub({

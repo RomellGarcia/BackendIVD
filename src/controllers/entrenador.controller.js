@@ -76,7 +76,7 @@ export const updatePerfil = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// NUEVO: el entrenador sale de su club por su cuenta.
+// El entrenador sale de su club por su cuenta.
 export const salirClub = async (req, res, next) => {
   try {
     const resultado = await EntrenadorModel.salirDelClub(req.entrenadorId)
@@ -85,11 +85,7 @@ export const salirClub = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// NUEVO: sugerencias para el Autocomplete de "Certificaciones" en el
-// registro y en el perfil — lo que ya existe en el catálogo real
-// (certificaciones_catalogo), no depende de ningún entrenador en
-// específico. Debe quedar como ruta PÚBLICA (sin requireAuth): se usa en
-// Registro.jsx, antes de que exista una sesión.
+// Sugerencias para el autocompletar "Certificaciones"
 export const getCertificacionesSugeridas = async (req, res, next) => {
   try {
     const certificaciones = await EntrenadorModel.findCertificacionesSugeridas()
