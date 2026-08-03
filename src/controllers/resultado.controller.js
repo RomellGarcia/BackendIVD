@@ -65,12 +65,13 @@ export const getEstadisticasGenerales = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// Obtiene las mejores marcas aplicando filtros (categoría, club, año, género)
+// Obtiene las mejores marcas aplicando filtros (categoría, disciplina, club, año, género)
 export const getMejoresMarcas = async (req, res, next) => {
   try {
-    const { categoria, club, ano_competitivo, genero } = req.query
+    const { categoria, disciplina, club, ano_competitivo, genero } = req.query
     const mejoresMarcas = await ResultadoModel.getMejoresMarcas({
       categoria,
+      disciplina,
       club,
       anoCompetitivo: ano_competitivo ? parseInt(ano_competitivo) : undefined,
       genero,

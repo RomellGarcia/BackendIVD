@@ -366,10 +366,11 @@ const resolverConvocatoria = async (client, convocatoriaId) => {
 }
 
 // Obtiene las mejores marcas por disciplina, categoría y género
-export const getMejoresMarcas = async ({ categoria, club, anoCompetitivo, genero } = {}) => {
+export const getMejoresMarcas = async ({ categoria, disciplina, club, anoCompetitivo, genero } = {}) => {
   const params = []
   const conditions = []
   if (categoria) { params.push(categoria); conditions.push(`cat.nombre = $${params.length}`) }
+  if (disciplina) { params.push(disciplina); conditions.push(`d.nombre = $${params.length}`) }
   if (club) { params.push(club); conditions.push(`c_atleta.nombre = $${params.length}`) }
   if (anoCompetitivo) { params.push(anoCompetitivo); conditions.push(`r.ano_competitivo = $${params.length}`) }
   if (genero) { params.push(genero); conditions.push(`g.nombre ILIKE $${params.length}`) }
