@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabase.js'
 import { findBySupabaseUid } from '../models/usuario.model.js'
+import * as EntrenadorModel from '../models/entrenador.model.js'
 import { pool } from '../config/db.js'
 
 // Registro de usuario según rol (atleta, club, entrenador, admin)
@@ -36,6 +37,27 @@ export const register = async (req, res, next) => {
     })
 
     if (error) return res.status(400).json({ error: error.message })
+    if (rol === 'entrenador' && data.user?.id) {
+      const { anos_experiencia, especialidades, certificaciones } = req.body
+      try {
+        const usuario = await findBySupabaseUid(data.user.id)
+        const entrenador = usuario ? await EntrenadorModel.findByUsuarioId(usuario.id) : null
+        if (entrenador) {
+          if (anos_experiencia !== undefined) {
+            await EntrenadorModel.updatePerfil(entrenador.id, usuario.id, { anos_experiencia })
+          }
+          if (especialidades?.length) {
+            await EntrenadorModel.updateEspecialidades(entrenador.id, especialidades)
+          }
+          if (certificaciones?.length) {
+            await EntrenadorModel.updateCertificaciones(entrenador.id, certificaciones)
+          }
+        }
+      } catch (errPerfil) {
+        console.error('No se pudo guardar la información profesional del entrenador:', errPerfil.message)
+      }
+    }
+
 
     res.status(201).json({
       mensaje: 'Registro exitoso. Revisa tu correo para confirmar tu cuenta.',

@@ -1,4 +1,5 @@
 import { pool } from '../config/db.js'
+import { supabase } from '../config/supabase.js'
 import { actualizarDatosUsuario, actualizarClubEntidad } from './usuario.model.js'
 import {
   sendSolicitudAceptadaEmail,
@@ -243,7 +244,21 @@ export const remove = async (atletaId) => {
   )
   if (!rows[0]) return { error: 'Atleta no encontrado' }
 
-  await pool.query(`DELETE FROM usuarios WHERE id = $1`, [rows[0].usuario_id])
+  const { rows: usuarioEliminado } = await pool.query(
+    `DELETE FROM usuarios WHERE id = $1 RETURNING supabase_uid`,
+    [rows[0].usuario_id]
+  )
+
+  // Borra también la cuenta de Supabase Auth para liberar el correo
+  const supabaseUid = usuarioEliminado[0]?.supabase_uid
+  if (supabaseUid) {
+    try {
+      await supabase.auth.admin.deleteUser(supabaseUid)
+    } catch (errAuth) {
+      console.error('No se pudo borrar la cuenta de Supabase Auth del atleta:', errAuth.message)
+    }
+  }
+
   return { ok: true }
 }
 

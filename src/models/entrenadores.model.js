@@ -1,4 +1,5 @@
 import { pool } from '../config/db.js'
+import { supabase } from '../config/supabase.js'
 import { actualizarDatosUsuario, actualizarClubEntidad } from './usuario.model.js'
 import * as NotificacionModel from './notificacion.model.js'
 import {
@@ -362,7 +363,9 @@ export const remove = async (entrenadorId) => {
     await client.query('BEGIN')
 
     const { rows: entrenadorRows } = await client.query(
-      `SELECT usuario_id FROM entrenadores WHERE id = $1`,
+      `SELECT e.usuario_id, u.supabase_uid FROM entrenadores e
+       JOIN usuarios u ON u.id = e.usuario_id
+       WHERE e.id = $1`,
       [entrenadorId]
     )
     if (!entrenadorRows[0]) {
@@ -370,6 +373,7 @@ export const remove = async (entrenadorId) => {
       return { error: 'Entrenador no encontrado' }
     }
     const usuarioId = entrenadorRows[0].usuario_id
+    const supabaseUid = entrenadorRows[0].supabase_uid
 
     // Quitar referencia si es entrenador principal de algún club
     await client.query(`UPDATE clubes SET entrenador_id = NULL WHERE entrenador_id = $1`, [entrenadorId])
@@ -384,6 +388,16 @@ export const remove = async (entrenadorId) => {
     await client.query(`DELETE FROM usuarios WHERE id = $1`, [usuarioId])
 
     await client.query('COMMIT')
+
+    // Borra también la cuenta de Supabase Auth para liberar el correo
+    if (supabaseUid) {
+      try {
+        await supabase.auth.admin.deleteUser(supabaseUid)
+      } catch (errAuth) {
+        console.error('No se pudo borrar la cuenta de Supabase Auth del entrenador:', errAuth.message)
+      }
+    }
+
     return { ok: true }
   } catch (err) {
     await client.query('ROLLBACK')
