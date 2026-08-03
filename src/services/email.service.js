@@ -31,11 +31,7 @@ export const sendEmail = async ({ to, subject, htmlContent }) => {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Plantilla visual única para todos los correos del sistema. `emoji` y
-// `acento` cambian según el tipo de aviso (cancelación, buena noticia,
-// info neutra) para que de un vistazo se distinga el tono del mensaje.
-// ─────────────────────────────────────────────────────────────────────────
+// Plantilla visual única para todos los correos del sistema
 const PALETA = {
   burgundy: '#800020',
   burgundyDark: '#5C0017',
@@ -100,10 +96,7 @@ const listaAtletasHtml = (atletas) => `
   </ul>
 `;
 
-// ─────────────────────────────────────────────────────────────────────────
 // Cuenta / acceso
-// ─────────────────────────────────────────────────────────────────────────
-
 export const sendPasswordResetEmail = async ({ to, nombre, codigo }) => {
   await sendEmail({
     to,
@@ -121,10 +114,8 @@ export const sendPasswordResetEmail = async ({ to, nombre, codigo }) => {
   })
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Club — solicitudes / invitaciones (lado ATLETA)
-// ─────────────────────────────────────────────────────────────────────────
 
+// Club — solicitudes / invitaciones (lado ATLETA)
 export const sendSolicitudAceptadaEmail = async ({ to, nombre, clubNombre }) => {
   await sendEmail({
     to,
@@ -167,8 +158,7 @@ export const sendInvitacionClubEmail = async ({ to, nombre, clubNombre }) => {
   })
 }
 
-// Al atleta, cuando se queda sin club (lo sacan o él mismo se independiza
-// y queda confirmado)
+// Al atleta, cuando se queda sin club (lo sacan o él mismo se independiza y queda confirmado)
 export const sendSalidaClubEmail = async ({ to, nombre, clubNombre }) => {
   await sendEmail({
     to,
@@ -183,10 +173,8 @@ export const sendSalidaClubEmail = async ({ to, nombre, clubNombre }) => {
   })
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Club — el lado del CLUB de las mismas solicitudes/invitaciones
-// ─────────────────────────────────────────────────────────────────────────
 
+// Club — el lado del CLUB de las mismas solicitudes/invitaciones
 export const sendSolicitudRecibidaClubEmail = async ({ to, clubNombre, atletaNombre }) => {
   await sendEmail({
     to,
@@ -286,10 +274,8 @@ export const sendEntrenadorSalioClubEmail = async ({ to, clubNombre, entrenadorN
   })
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Cancelaciones — lado ATLETA
-// ─────────────────────────────────────────────────────────────────────────
 
+// Cancelaciones — lado ATLETA
 export const sendConvocatoriaCanceladaEmail = async ({ to, nombre, disciplina, categoria, eventoTitulo }) => {
   await sendEmail({
     to,
@@ -320,10 +306,7 @@ export const sendEventoCanceladoEmail = async ({ to, nombre, eventoTitulo }) => 
   });
 };
 
-// ─────────────────────────────────────────────────────────────────────────
 // Cancelaciones — lado CLUB (lista los atletas propios afectados)
-// ─────────────────────────────────────────────────────────────────────────
-
 export const sendConvocatoriaCanceladaClubEmail = async ({ to, clubNombre, disciplina, categoria, eventoTitulo, atletas }) => {
   await sendEmail({
     to,
@@ -356,10 +339,8 @@ export const sendEventoCanceladoClubEmail = async ({ to, clubNombre, eventoTitul
   });
 };
 
-// ─────────────────────────────────────────────────────────────────────────
-// Finalización — lado ATLETA
-// ─────────────────────────────────────────────────────────────────────────
 
+// Finalización — lado ATLETA
 export const sendConvocatoriaFinalizadaEmail = async ({ to, nombre, disciplina, categoria, eventoTitulo }) => {
   await sendEmail({
     to,
@@ -388,10 +369,7 @@ export const sendEventoFinalizadoEmail = async ({ to, nombre, eventoTitulo }) =>
   });
 };
 
-// ─────────────────────────────────────────────────────────────────────────
 // Finalización — lado CLUB (lista los atletas propios que participaron)
-// ─────────────────────────────────────────────────────────────────────────
-
 export const sendConvocatoriaFinalizadaClubEmail = async ({ to, clubNombre, disciplina, categoria, eventoTitulo, atletas }) => {
   await sendEmail({
     to,
@@ -424,10 +402,8 @@ export const sendEventoFinalizadoClubEmail = async ({ to, clubNombre, eventoTitu
   });
 };
 
-// ─────────────────────────────────────────────────────────────────────────
-// Resultados publicados — ATLETA y CLUB
-// ─────────────────────────────────────────────────────────────────────────
 
+// Resultados publicados — ATLETA y CLUB
 export const sendResultadosPublicadosEmail = async ({ to, nombre, disciplina, categoria, eventoTitulo }) => {
   await sendEmail({
     to,
