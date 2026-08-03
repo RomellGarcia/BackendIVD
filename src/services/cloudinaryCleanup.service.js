@@ -1,8 +1,6 @@
 import cloudinary from 'cloudinary'
 
-// Cloudinary necesita saber si el archivo es 'image' o 'raw' para poder
-// borrarlo — como subimos todo con resource_type:'auto', no guardamos cuál
-// resultó ser cada uno, así que probamos los dos tipos posibles.
+// Cloudinary necesita saber si el archivo es 'image' o 'raw' para poder borrarlo
 export const borrarDeCloudinary = async (publicId) => {
   if (!publicId) return
   for (const resourceType of ['image', 'raw']) {
