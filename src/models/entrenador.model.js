@@ -1,4 +1,5 @@
 import { pool } from '../config/db.js'
+import { actualizarDatosUsuario } from './usuario.model.js'
 import * as NotificacionModel from './notificacion.model.js'
 import { sendEntrenadorSalioClubEmail, sendSalidaClubEmail, sendSolicitudEntrenadorRecibidaClubEmail } from '../services/email.service.js'
 import { updateSolicitud } from './entrenadores.model.js'
@@ -7,9 +8,9 @@ import { updateSolicitud } from './entrenadores.model.js'
 export const findByUsuarioId = async (usuarioId) => {
   const { rows } = await pool.query(
     `SELECT
-      e.id, e.anos_experiencia, e.estado, e.lugar_entrenamiento AS lugar_entrenamiento_propio,
+      e.id, e.anos_experiencia, e.estado, e.lugar_entrenamiento AS lugar_entrenamiento_propio, e.municipio,
       u.nombre, u.apellido_paterno, u.apellido_materno,
-      u.email, u.telefono, u.fecha_nacimiento, u.curp,
+      u.email, u.telefono, u.fecha_nacimiento, u.curp, u.estado_nacimiento,
       g.nombre AS genero,
       c.id AS club_id, c.nombre AS club_nombre, c.lugar_entrenamiento AS club_lugar_entrenamiento,
       COALESCE(
@@ -30,7 +31,7 @@ export const findByUsuarioId = async (usuarioId) => {
      LEFT JOIN especialidades_catalogo ec    ON ec.id = te.especialidad_id
      WHERE e.usuario_id = $1
      GROUP BY e.id, u.nombre, u.apellido_paterno, u.apellido_materno,
-              u.email, u.telefono, u.fecha_nacimiento, u.curp,
+              u.email, u.telefono, u.fecha_nacimiento, u.curp, u.estado_nacimiento,
               g.nombre, c.id, c.nombre`,
     [usuarioId]
   )
@@ -161,11 +162,19 @@ export const findSolicitudesByEntrenador = async (entrenadorId) => {
 }
 
 //Actualizar perfil (datos en usuarios + datos en entrenadores)
-export const updatePerfil = async (entrenadorId, usuarioId, { telefono, anos_experiencia, lugar_entrenamiento }) => {
-  if (telefono !== undefined) {
+export const updatePerfil = async (entrenadorId, usuarioId, {
+  nombre, apellido_paterno, apellido_materno, telefono, genero,
+  municipio, anos_experiencia, lugar_entrenamiento
+}) => {
+  // Datos que viven en la tabla usuarios (compartida con los demás roles)
+  if (nombre !== undefined || apellido_paterno !== undefined || apellido_materno !== undefined
+      || telefono !== undefined || genero !== undefined) {
+    await actualizarDatosUsuario(usuarioId, { nombre, apellido_paterno, apellido_materno, telefono, genero })
+  }
+  if (municipio !== undefined) {
     await pool.query(
-      `UPDATE usuarios SET telefono = $1 WHERE id = $2`,
-      [telefono, usuarioId]
+      `UPDATE entrenadores SET municipio = $1 WHERE id = $2`,
+      [municipio, entrenadorId]
     )
   }
   if (anos_experiencia !== undefined) {
